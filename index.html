@@ -1,0 +1,3945 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DSP Node Graph: Reverb Lab</title>
+    <style>
+        :root {
+            --bg: #1a1a1a;
+            --node-bg: #2d2d2d;
+            --node-header: #404040;
+            --text: #e0e0e0;
+            --accent: #00d2ff;
+            --accent-hover: #33ddff;
+            --input: #ff4d4d;
+            --output: #4dff88;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #toolbar {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            right: 10px;
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .node-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+            pointer-events: auto;
+            flex: 1 1 auto;
+        }
+
+        .action-group {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            pointer-events: auto;
+            flex: 0 0 auto;
+            white-space: nowrap;
+        }
+
+        .toolbar-separator {
+            width: 1px;
+            height: 20px;
+            background: #555;
+            margin: 0 4px;
+            pointer-events: none;
+        }
+
+        button,
+        .file-btn,
+        select {
+            pointer-events: auto;
+            background: var(--node-bg);
+            border: 1px solid #555;
+            color: var(--text);
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        button:hover,
+        .file-btn:hover,
+        select:hover {
+            background: var(--node-header);
+            border-color: var(--accent);
+        }
+
+        button.primary {
+            background: var(--accent);
+            color: #000;
+            border: none;
+        }
+
+        button.primary:hover {
+            background: var(--accent-hover);
+        }
+
+        select {
+            width: 120px;
+            outline: none;
+        }
+
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        #overlay {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            pointer-events: none;
+            color: #666;
+            font-size: 12px;
+            text-shadow: 0 1px 2px #000;
+        }
+
+        /* Custom file input hidden */
+        #file-input {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="toolbar">
+        <div class="node-group">
+            <button id="btn-start" class="primary">Start Audio Engine</button>
+            <div class="toolbar-separator"></div>
+            <button onclick="app.addNode('audio-source')">Audio Source</button>
+            <button onclick="app.addNode('gain')">Gain</button>
+            <button onclick="app.addNode('mixer')">Mixer</button>
+            <button onclick="app.addNode('wetdry')">Wet/Dry</button>
+            <button onclick="app.addNode('panner')">Panner</button>
+            <button onclick="app.addNode('delay')">Delay</button>
+            <button onclick="app.addNode('comb')">Comb (FB)</button>
+            <button onclick="app.addNode('allpass-delay')">Allpass (Delay)</button>
+            <button onclick="app.addNode('allpass')">Allpass (Biquad)</button>
+            <button onclick="app.addNode('diffuser')">Diffuser</button>
+            <button onclick="app.addNode('fdn-scalable')">FDN (Feedback delay network)</button>
+            <button onclick="app.addNode('lpf')">LPF</button>
+            <button onclick="app.addNode('hpf')">HPF</button>
+            <button onclick="app.addNode('bpf')">Band Pass</button>
+            <button onclick="app.addNode('notch')">Notch</button>
+            <button onclick="app.addNode('ringmod')">Ring Mod</button>
+            <button onclick="app.addNode('mono')">Mono</button>
+            <button onclick="app.addNode('distortion')">Distortion</button>
+            <button onclick="app.addNode('adder')">Adder</button>
+            <button onclick="app.addNode('inverter')">Inverter</button>
+            <button onclick="app.addNode('abs')">Absolute</button>
+            <button onclick="app.addNode('value')">Value</button>
+            <button onclickw="app.addNode('samplehold')">Sample &amp; Hold</button>
+            <button onclick="app.addNode('lfo')">LFO</button>
+        </div>
+        <div class="action-group">
+            <select id="preset-select" onchange="app.loadPreset(this.value); this.value='';">
+                <option value="" disabled selected>Presets...</option>
+                <option value="freeverb-stereo">Freeverb (Stereo)</option>
+                <option value="fdn-hall">FDN Hall</option>
+                <option value="dub">Dub Echo (Filtered)</option>
+                <option value="chorus">Chorus / Flange</option>
+            </select>
+            <button onclick="app.saveGraph()">Save</button>
+            <button onclick="document.getElementById('json-input').click()">Load</button>
+            <button onclick="app.reset()">Clear</button>
+            <button id="btn-toggle-delay-units">Delay Units: ms</button>
+        </div>
+    </div>
+
+    <!-- Hidden Inputs for File Loading -->
+    <input type="file" id="json-input" accept=".json" onchange="app.loadGraph(this)" style="display:none">
+    <input type="file" id="audio-input" accept="audio/*" style="display:none">
+
+    <div id="canvas-container">
+        <canvas id="nodeCanvas"></canvas>
+    </div>
+
+    <div id="overlay">
+        Right-click: Delete • Mid-click drag: Pan • Dbl-click line: Disconnect • Drag ports: Connect • Spacebar:
+        Re-trigger Source • Q-P: Chromatic notes • 2/3/5/6/7/9/0: Sharps • +/-: Octave shift • Delay Units button:
+        Toggle
+        ms/samples • Mic button: Toggle live input • Yellow ports: Parameter scale inputs
+    </div>
+
+    <script>
+        /* * AUDIO SYNTHESIS UTILS */
+        const AudioUtils = {
+            ctx: null,
+            init(ctx) { this.ctx = ctx; },
+
+            createNoise(duration = 1.0) {
+                if (!this.ctx) return null;
+                const size = this.ctx.sampleRate * duration;
+                const buffer = this.ctx.createBuffer(1, size, this.ctx.sampleRate);
+                const data = buffer.getChannelData(0);
+                for (let i = 0; i < size; i++) data[i] = Math.random() * 2 - 1;
+                return buffer;
+            },
+
+            // Helper math for log sliders
+            toLog(position, min, max) {
+                // position 0..1
+                const minv = Math.log(min);
+                const maxv = Math.log(max);
+                const scale = maxv - minv;
+                return Math.exp(minv + scale * position);
+            },
+
+            fromLog(value, min, max) {
+                // value min..max -> returns 0..1
+                const minv = Math.log(min);
+                const maxv = Math.log(max);
+                const scale = maxv - minv;
+                return (Math.log(value) - minv) / scale;
+            }
+        };
+
+        /* * NODE GRAPH ENGINE */
+
+        class DSPNode {
+            constructor(x, y, title, app) {
+                this.id = crypto.randomUUID();
+                this.x = x;
+                this.y = y;
+                this.width = 140;
+                this.title = title;
+                this.app = app;
+                this.inputs = [];  // {name, id, node: AudioNode}
+                this.outputs = []; // {name, id, node: AudioNode}
+                this.params = [];  // {label, type, value, min, max, scale, onChange}
+                this.paramInputs = []; // [{name, id, paramIndex}]
+                this.paramModulators = []; // Array of [{node}]
+                this.paramSpacing = 40;
+
+                this.headerHeight = 25;
+                this.bodyHeight = 0;
+                this.dragOffset = { x: 0, y: 0 };
+            }
+
+            computeHeight() {
+                const perParam = this.paramSpacing || 40;
+                const paramH = this.params.length * perParam;
+                const ioH = Math.max(this.inputs.length, this.outputs.length) * 20;
+                // Add extra space for specific nodes
+                const isAudioSource = this.type === 'audio-source' || this.type === 'sampler';
+                let extra = isAudioSource ? 160 : (this.type === 'output' ? 20 : 0);
+                this.bodyHeight = extra + paramH + ioH;
+                this.height = this.headerHeight + this.bodyHeight;
+            }
+
+            initAudio(ctx) { } // Override
+
+            setupParameterIO() {
+                if (!this.params) return;
+                this.paramInputs = this.params.map((p, idx) => ({
+                    name: p.label ? `${p.label} Scale` : 'Scale',
+                    id: idx,
+                    paramIndex: idx
+                }));
+                if (!this.paramModulators) this.paramModulators = [];
+                this.params.forEach((_, idx) => {
+                    if (!this.paramModulators[idx]) this.paramModulators[idx] = [];
+                });
+            }
+
+            getParamInputPos(index) {
+                const slotTop = this.getParamSlotTop(index);
+                const portOffset = 28;
+                return {
+                    x: this.x,
+                    y: slotTop + portOffset
+                };
+            }
+
+            updateParam(index) {
+                const param = this.params && this.params[index];
+                if (!param || typeof param.onChange !== 'function') return;
+                const mods = (this.paramModulators && this.paramModulators[index]) || [];
+                const modValues = mods
+                    .map(entry => (entry.node && typeof entry.node.getValue === 'function') ? entry.node.getValue() : undefined)
+                    .filter(v => typeof v === 'number' && isFinite(v));
+                const strategy = param.modulationStrategy || 'multiply';
+                let effective = param.value;
+                if (modValues.length) {
+                    if (strategy === 'add') {
+                        const sum = modValues.reduce((acc, v) => acc + v, 0);
+                        effective += sum;
+                    } else if (strategy === 'override') {
+                        effective = modValues[modValues.length - 1];
+                    } else {
+                        const product = modValues.reduce((acc, v) => acc * v, 1);
+                        effective *= product;
+                    }
+                }
+                param.onChange(effective);
+                param.effectiveValue = effective;
+            }
+
+            removeParamModulator(index, node) {
+                if (!this.paramModulators || !this.paramModulators[index]) return;
+                this.paramModulators[index] = this.paramModulators[index].filter(entry => entry.node !== node);
+            }
+
+            initializeParams() {
+                this.setupParameterIO();
+                if (!this.params) return;
+                this.params.forEach(param => {
+                    if (param.defaultValue === undefined) {
+                        param.defaultValue = param.value;
+                    }
+                    const strategy = param.modulationStrategy || 'multiply';
+                    param.modulationStrategy = strategy;
+                    if (param.defaultModulationStrategy === undefined) {
+                        param.defaultModulationStrategy = strategy;
+                    }
+                });
+                this.params.forEach((_, idx) => this.updateParam(idx));
+            }
+
+            getParamSlotTop(index) {
+                const baseOffset = (this.type === 'audio-source' || this.type === 'sampler') ? 100 : 14;
+                const spacing = this.paramSpacing || 40;
+                return this.y + this.headerHeight + baseOffset + (index * spacing);
+            }
+
+            getSnapshot() {
+                const snapshot = {
+                    id: this.id,
+                    type: this.type,
+                    x: this.x,
+                    y: this.y,
+                    params: this.params.map(p => p.value)
+                };
+                const extra = this.getExtraData();
+                if (extra && Object.keys(extra).length > 0) {
+                    snapshot.extra = extra;
+                }
+                return snapshot;
+            }
+
+            getExtraData() {
+                if (!this.params || !this.params.length) return null;
+                const overrides = [];
+                this.params.forEach((param, idx) => {
+                    const defaultStrategy = param.defaultModulationStrategy || 'multiply';
+                    const currentStrategy = param.modulationStrategy || 'multiply';
+                    if (currentStrategy !== defaultStrategy) {
+                        overrides.push({ index: idx, strategy: currentStrategy });
+                    }
+                });
+                return overrides.length ? { paramStrategies: overrides } : null;
+            }
+
+            restoreExtraData(data) {
+                if (!data || !this.params) return;
+                const strategies = Array.isArray(data.paramStrategies)
+                    ? data.paramStrategies
+                    : (data.paramStrategies ? [data.paramStrategies] : []);
+                strategies.forEach(entry => {
+                    const { index, strategy } = entry || {};
+                    if (typeof index === 'number' && this.params[index]) {
+                        this.params[index].modulationStrategy = strategy || 'multiply';
+                    }
+                });
+            }
+
+            isPointInside(x, y) {
+                return x >= this.x && x <= this.x + this.width &&
+                    y >= this.y && y <= this.y + this.height;
+            }
+
+            getPortPos(isInput, index) {
+                if (isInput && this.params && this.params.length > 0 && index < this.params.length) {
+                    const slotTop = this.getParamSlotTop(index);
+                    return {
+                        x: this.x,
+                        y: slotTop + 8
+                    };
+                }
+
+                const baseY = this.y + (this.headerHeight * 0.5);
+                const spacing = 18;
+                const y = baseY + (index * spacing);
+                const x = isInput ? this.x : this.x + this.width;
+                return { x, y };
+            }
+        }
+
+        /* * SPECIFIC NODE IMPLEMENTATIONS */
+
+        class OutputNode extends DSPNode {
+            constructor(x, y, app) {
+                super(x, y, 'Stereo Output', app);
+                this.type = 'output';
+                this.width = 140;
+                this.analyser = null;
+                this.visualData = null;
+            }
+
+            initAudio(ctx) {
+                this.analyser = ctx.createAnalyser();
+                this.analyser.fftSize = 256;
+                this.visualData = new Uint8Array(this.analyser.frequencyBinCount);
+
+                this.limiter = ctx.createDynamicsCompressor();
+                this.limiter.threshold.value = -1;
+                this.limiter.ratio.value = 20;
+
+                this.analyser.connect(this.limiter);
+                this.limiter.connect(ctx.destination);
+
+                this.inputs = [{ name: 'L/R', id: 0, node: this.analyser }];
+                this.computeHeight();
+            }
+        }
+
+        class AudioSourceNode extends DSPNode {
+            constructor(x, y, app) {
+                super(x, y, 'Audio Source', app);
+                this.type = 'audio-source';
+                this.width = 210;
+                this.paramSpacing = 40;
+                this.customBuffer = null;
+                this.lastType = 'kick'; // For spacebar
+                this.baseFrequency = 440;
+                this.basePlaybackRate = 1;
+                this.noteRelease = 0.3;
+                this.micStream = null;
+                this.micSource = null;
+                this.micActive = false;
+                this.micPending = false;
+                this.micError = null;
+            }
+
+            initAudio(ctx) {
+                this.outNode = ctx.createGain();
+                this.outputs = [{ name: 'Out', id: 0, node: this.outNode }];
+                this.computeHeight();
+            }
+
+            isTypePitchable(type) {
+                if (type === 'custom') return !!this.customBuffer;
+                return type === 'sine' || type === 'saw' || type === 'square' || type === 'triangle';
+            }
+
+            isPitchable() {
+                return this.isTypePitchable(this.lastType);
+            }
+
+            playOscillator(type, frequency, duration = this.noteRelease) {
+                const ctx = this.app.audioCtx;
+                if (!ctx) return;
+                const t = ctx.currentTime;
+                const osc = ctx.createOscillator();
+                osc.type = type === 'saw' ? 'sawtooth' : type;
+                osc.frequency.setValueAtTime(frequency, t);
+                const gain = ctx.createGain();
+                gain.gain.setValueAtTime(0.5, t);
+                gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+                osc.connect(gain).connect(this.outNode);
+                osc.start(t);
+                osc.stop(t + duration);
+            }
+
+            playCustomBuffer(rate = 1) {
+                const ctx = this.app.audioCtx;
+                if (!ctx || !this.customBuffer) return;
+                const t = ctx.currentTime;
+                const src = ctx.createBufferSource();
+                src.buffer = this.customBuffer;
+                src.playbackRate.setValueAtTime(rate, t);
+                src.connect(this.outNode);
+                src.start(t);
+            }
+
+            loadCustomSample(file) {
+                if (!this.app.audioCtx) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    this.app.audioCtx.decodeAudioData(e.target.result, (buffer) => {
+                        this.customBuffer = buffer;
+                        this.basePlaybackRate = 1;
+                        this.trigger('custom');
+                    }, (e) => console.error("Error decoding audio data", e));
+                };
+                reader.readAsArrayBuffer(file);
+            }
+
+            async toggleMic() {
+                if (!this.app) return;
+                await this.app.startAudio();
+                if (this.micPending) return;
+                this.micPending = true;
+                try {
+                    if (this.micActive) {
+                        this.stopMic();
+                        return;
+                    }
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        this.micError = new Error('Microphone unavailable');
+                        console.error('Microphone unavailable in this browser');
+                        return;
+                    }
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    const ctx = this.app.audioCtx;
+                    if (!ctx) {
+                        stream.getTracks().forEach(track => track.stop());
+                        this.micError = new Error('Audio context unavailable');
+                        return;
+                    }
+                    this.micStream = stream;
+                    this.micSource = ctx.createMediaStreamSource(stream);
+                    this.micSource.connect(this.outNode);
+                    this.micActive = true;
+                    this.micError = null;
+                } catch (err) {
+                    this.micError = err;
+                    this.stopMic();
+                    console.error('Microphone access failed', err);
+                } finally {
+                    this.micPending = false;
+                }
+            }
+
+            stopMic() {
+                if (this.micSource) {
+                    try { this.micSource.disconnect(); } catch (e) { }
+                    this.micSource = null;
+                }
+                if (this.micStream) {
+                    this.micStream.getTracks().forEach(track => {
+                        try { track.stop(); } catch (e) { }
+                    });
+                    this.micStream = null;
+                }
+                this.micActive = false;
+            }
+
+            trigger(type) {
+                if (!this.app.audioCtx) return;
+
+                this.lastType = type;
+                this.app.lastAudioSourceNode = this; // Register as active for spacebar
+
+                const ctx = this.app.audioCtx;
+                const t = ctx.currentTime;
+                const out = this.outNode;
+
+                if (type === 'custom' && this.customBuffer) {
+                    this.basePlaybackRate = 1;
+                    this.playCustomBuffer(1);
+                } else if (type === 'kick') {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.frequency.setValueAtTime(150, t);
+                    osc.frequency.exponentialRampToValueAtTime(0.01, t + 0.5);
+                    gain.gain.setValueAtTime(1, t);
+                    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+                    osc.connect(gain);
+                    gain.connect(out);
+                    osc.start(t); osc.stop(t + 0.5);
+                } else if (type === 'snare') {
+                    const noise = ctx.createBufferSource();
+                    noise.buffer = AudioUtils.createNoise(0.2);
+                    const nGain = ctx.createGain();
+                    const nFilter = ctx.createBiquadFilter();
+                    nFilter.type = 'highpass'; nFilter.frequency.value = 1000;
+                    nGain.gain.setValueAtTime(1, t); nGain.gain.exponentialRampToValueAtTime(0.01, t + 0.2);
+                    noise.connect(nFilter).connect(nGain).connect(out);
+                    noise.start(t);
+
+                    const osc = ctx.createOscillator();
+                    const oGain = ctx.createGain();
+                    osc.frequency.setValueAtTime(250, t); osc.frequency.linearRampToValueAtTime(100, t + 0.1);
+                    oGain.gain.setValueAtTime(0.5, t); oGain.gain.exponentialRampToValueAtTime(0.01, t + 0.15);
+                    osc.connect(oGain).connect(out);
+                    osc.start(t); osc.stop(t + 0.2);
+                } else if (type === 'hh') {
+                    const noise = ctx.createBufferSource();
+                    noise.buffer = AudioUtils.createNoise(0.05);
+                    const nGain = ctx.createGain();
+                    const nFilter = ctx.createBiquadFilter();
+                    nFilter.type = 'highpass'; nFilter.frequency.value = 5000;
+                    nGain.gain.setValueAtTime(0.6, t); nGain.gain.exponentialRampToValueAtTime(0.01, t + 0.05);
+                    noise.connect(nFilter).connect(nGain).connect(out);
+                    noise.start(t);
+                } else if (type === 'sine' || type === 'saw' || type === 'square' || type === 'triangle') {
+                    this.baseFrequency = 440;
+                    this.playOscillator(type, this.baseFrequency);
+                } else if (type === 'noise') {
+                    const buffer = AudioUtils.createNoise(0.4);
+                    if (buffer) {
+                        const noise = ctx.createBufferSource();
+                        noise.buffer = buffer;
+                        const gain = ctx.createGain();
+                        gain.gain.setValueAtTime(0.4, t);
+                        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+                        noise.connect(gain).connect(out);
+                        noise.start(t);
+                    }
+                } else if (type === 'mic') {
+                    this.toggleMic();
+                }
+            }
+
+            triggerNote(semitone, octaveOffset = 0) {
+                if (!this.app.audioCtx) return;
+                if (!this.isPitchable()) return;
+                const ratio = Math.pow(2, octaveOffset) * Math.pow(2, semitone / 12);
+
+                if (this.lastType === 'custom') {
+                    this.playCustomBuffer(this.basePlaybackRate * ratio);
+                } else if (this.lastType === 'sine' || this.lastType === 'saw' || this.lastType === 'square' || this.lastType === 'triangle') {
+                    this.playOscillator(this.lastType, this.baseFrequency * ratio);
+                }
+
+                this.app.lastAudioSourceNode = this;
+            }
+
+            onRemoved() {
+                this.stopMic();
+            }
+        }
+
+        class GainNodeUI extends DSPNode {
+            constructor(x, y, app) { super(x, y, 'Gain', app); this.type = 'gain'; }
+            initAudio(ctx) {
+                this.node = ctx.createGain();
+                this.inputs = [{ name: 'In', id: 0, node: this.node }];
+                this.outputs = [{ name: 'Out', id: 0, node: this.node }];
+                this.params = [{
+                    label: 'Level', type: 'range', value: 1.0, min: 0, max: 2, scale: 'linear',
+                    onChange: (v) => this.node.gain.setTargetAtTime(v, ctx.currentTime, 0.01)
+                }];
+                this.initializeParams();
+                this.computeHeight();
+            }
+        }
+
+        class MixerNodeUI extends DSPNode {
+            constructor(x, y, app) { super(x, y, 'Mixer (4ch)', app); this.type = 'mixer'; this.width = 160; }
+            initAudio(ctx) {
+                this.outNode = ctx.createGain();
+                this.gains = [];
+                this.inputs = [];
+
+                for (let i = 0; i < 4; i++) {
+                    const g = ctx.createGain();
+                    g.connect(this.outNode);
+                    this.gains.push(g);
+                    this.inputs.push({ name: `In ${i + 1}`, id: i, node: g });
+                }
+
+                this.outputs = [{ name: 'Mix Out', id: 0, node: this.outNode }];
+
+                this.params = this.gains.map((g, i) => ({
+                    label: `Ch ${i + 1} Vol`, type: 'range', value: 0.8, min: 0, max: 1, scale: 'linear',
+                    onChange: (v) => g.gain.setTargetAtTime(v, ctx.currentTime, 0.01)
+                }));
+                this.initializeParams();
+                this.computeHeight();
+            }
+        }
+
+        class WetDryNodeUI extends DSPNode {
+            constructor(x, y, app) {
+                super(x, y, 'Wet/Dry', app);
+                this.type = 'wetdry';
+                this.width = 160;
+                this.blendValue = 0.5;
+                this.levelValue = 1;
+            }
+
+            initAudio(ctx) {
+                this.dryGain = ctx.createGain();
+                this.wetGain = ctx.createGain();
+                this.outputGain = ctx.createGain();
+
+                this.dryGain.connect(this.outputGain);
+                this.wetGain.connect(this.outputGain);
+
+                this.inputs = [
+                    { name: 'Dry In', id: 0, node: this.dryGain },
+                    { name: 'Wet In', id: 1, node: this.wetGain }
+                ];
+                this.outputs = [{ name: 'Mix Out', id: 0, node: this.outputGain }];
+
+                this.params = [
+                    {
+                        label: 'Wet/Dry', type: 'range', value: this.blendValue, min: 0, max: 1, scale: 'linear',
+                        onChange: (v) => this.setBlend(v)
+                    },
+                    {
+                        label: 'Level', type: 'range', value: this.levelValue, min: 0, max: 2, scale: 'linear',
+                        onChange: (v) => this.setLevel(v, ctx)
+                    }
+                ];
+
+                this.initializeParams();
+                this.computeHeight();
+                this.refreshGains(ctx);
+            }
+
+            setBlend(v) {
+                this.blendValue = v;
+                this.refreshGains();
+            }
+
+            setLevel(v, ctx) {
+                this.levelValue = v;
+                if (this.outputGain && ctx) {
+                    this.outputGain.gain.setTargetAtTime(v, ctx.currentTime, 0.01);
+                }
+            }
+
+            refreshGains(ctxOverride) {
+                const ctx = ctxOverride || (this.app ? this.app.audioCtx : null);
+                if (!ctx) return;
+                const now = ctx.currentTime;
+                const angle = this.blendValue * Math.PI * 0.5;
+                // Use constant-power law to keep perceived loudness even across the blend.
+                const dry = Math.cos(angle);
+                const wet = Math.sin(angle);
+
+                if (this.dryGain) {
+                    this.dryGain.gain.setTargetAtTime(dry, now, 0.01);
+                }
+                if (this.wetGain) {
+                    this.wetGain.gain.setTargetAtTime(wet, now, 0.01);
+                }
+                if (this.outputGain) {
+                    this.outputGain.gain.setTargetAtTime(this.levelValue, now, 0.01);
+                }
+            }
+        }
+
+        class PannerNodeUI extends DSPNode {
+            constructor(x, y, app) { super(x, y, 'Stereo Panner', app); this.type = 'panner'; }
+            initAudio(ctx) {
+                this.node = ctx.createStereoPanner();
+                this.inputs = [{ name: 'In', id: 0, node: this.node }];
+                this.outputs = [{ name: 'Out', id: 0, node: this.node }];
+                this.params = [{
+                    label: 'Pan', type: 'range', value: 0, min: -1, max: 1, scale: 'linear',
+                    onChange: (v) => this.node.pan.setTargetAtTime(v, ctx.currentTime, 0.01)
+                }];
+                this.initializeParams();
+                this.computeHeight();
+            }
+        }
+
+        class DelayNodeUI extends DSPNode {
+            constructor(x, y, app) { super(x, y, 'Delay', app); this.type = 'delay'; }
+            initAudio(ctx) {
+                this.node = ctx.createDelay(5.0);
+                this.node.delayTime.value = 0.5;
+                this.inputs = [{ name: 'In', id: 0, node: this.node }];
+                this.outputs = [{ name: 'Out', id: 0, node: this.node }];
+                this.params = [{
+                    label: 'Time (s)', type: 'range', value: 0.5, min: 0.01, max: 2, scale: 'log',
+                    onChange: (v) => this.node.delayTime.setTargetAtTime(v, ctx.currentTime, 0.02)
+                }];
+                this.initializeParams();
+                this.computeHeight();
+            }
+        }
+
+        class BiquadNodeUI extends DSPNode {
+            constructor(x, y, app, type) {
+                const titleMap = {
+                    lowpass: 'LP Filter',
+                    highpass: 'HP Filter',
+                    bandpass: 'BP Filter',
+                    notch: 'Notch Filter',
+                    allpass: 'Allpass (Biquad)'
+                };
+                const typeMap = {
+                    lowpass: 'lpf',
+                    highpass: 'hpf',
+                    bandpass: 'bpf',
+                    notch: 'notch',
+                    allpass: 'allpass'
+                };
+                super(x, y, titleMap[type] || 'Filter', app);
+                this.filterType = type;
+                this.type = typeMap[type] || 'filter';
+            }
+            initAudio(ctx) {
+                this.node = ctx.createBiquadFilter();
+                this.node.type = this.filterType;
+                let defaultFreq = 1000;
+                if (this.filterType === 'lowpass') defaultFreq = 2000;
+                else if (this.filterType === 'highpass') defaultFreq = 500;
+                this.node.frequency.value = defaultFreq;
+                if (this.filterType === 'notch' || this.filterType === 'bandpass') {
+                    this.node.Q.value = 1;
+                }
+                if (this.filterType === 'allpass') {
+                    this.node.Q.value = 0.707;
+                }
+
+                this.inputs = [{ name: 'In', id: 0, node: this.node }];
+                this.outputs = [{ name: 'Out', id: 0, node: this.node }];
+
+                this.params = [{
+                    label: 'Freq (Hz)', type: 'range', value: this.node.frequency.value, min: 20, max: 15000, scale: 'log',
+                    onChange: (v) => this.node.frequency.setTargetAtTime(v, ctx.currentTime, 0.02)
+                },
+                {
+                    label: 'Q', type: 'range', value: this.node.Q.value || 1, min: 0.1, max: 20, scale: 'linear',
+                    onChange: (v) => this.node.Q.setTargetAtTime(v, ctx.currentTime, 0.02)
+                }];
+                this.initializeParams();
+                this.computeHeight();
+            }
+        }
+
+        class FDNNodeUI extends DSPNode {
+            constructor(x, y, app) {
+                super(x, y, 'FDN (8-Tap Householder)', app);
+                this.type = 'fdn-scalable';
+                this.width = 180;
+                this.N = 8; // 8 Taps
+                
+                this.delays = [];
+                this.feedbackGains = [];
+                this.dampers = [];
+                this.lfos = [];
+                this.lfoGains = [];
+                
+                const sampleRate = 48000;
+
+                this.baseDelays = [
+                    571  / sampleRate,
+                    779  / sampleRate,
+                    903  / sampleRate,
+                    1127  / sampleRate,
+                    1349  / sampleRate,
+                    1491  / sampleRate,
+                    1557 / sampleRate,
+                    1617 / sampleRate
+                ];
+
+                // LFO Tuning Offsets (in Hz) for Modulation Diversity
+                this.lfoTuningOffsets = [0, 0.01, 0.0142, 0.02, 0.025, 0.028235, 0.03151, 0.0343341];
+                
+                this.currentSize = 1.0;
+                this.currentDecay = 2.0;
+                this.modRateBase = 0.1;
+                this.modRateSpread = 0.05;
+                this.modAmount = 0.5;
+            }
+
+            initAudio(ctx) {
+                // --- 1. Master I/O ---
+                this.inputGain = ctx.createGain();
+                this.outputMixer = ctx.createGain();
+
+                // --- 2. Householder Matrix Node ---
+                // Formula: Output = Input - (2/N * Sum)
+                this.matrixSum = ctx.createGain();
+                
+                // CRITICAL FIX: Dynamic scaling based on N. 
+                // For N=8, this becomes -0.25. For N=4, it was -0.5.
+                const scalingFactor = -2.0 / this.N;
+                this.matrixSum.gain.value = scalingFactor;
+
+                // Cleanup
+                this.delays = [];
+                this.feedbackGains = [];
+                this.dampers = [];
+                this.lfos = [];
+                this.lfoGains = [];
+
+                // --- 3. Construct the Feedback Loops ---
+                for (let i = 0; i < this.N; i++) {
+                    // A. Delay Line
+                    const delay = ctx.createDelay(1.5); // More headroom for size > 1.0
+                    delay.delayTime.value = this.baseDelays[i] * this.currentSize;
+                    this.delays.push(delay);
+
+                    // B. Modulation
+                    const lfo = ctx.createOscillator();
+                    const freq = Math.max(0.01, this.modRateBase + (i * this.modRateSpread) + this.lfoTuningOffsets[i]);
+                    lfo.frequency.value = freq;
+                    lfo.phase = Math.random() * Math.PI * 2; // Random start phase
+                    const lfoGain = ctx.createGain();
+                    const depth = Math.max(0, this.modAmount) * 0.001;
+                    lfoGain.gain.value = depth;
+                    
+                    lfo.connect(lfoGain).connect(delay.delayTime);
+                    lfo.start();
+                    this.lfos.push(lfo);
+                    this.lfoGains.push(lfoGain);
+
+                    // C. Feedback Gain
+                    const fbGain = ctx.createGain();
+                    fbGain.gain.value = 0.5; 
+                    this.feedbackGains.push(fbGain);
+
+                    // D. Color / Stability Filters
+                    
+                    // 1. Highpass (DC Blocker)
+                    const hpf = ctx.createBiquadFilter();
+                    hpf.type = 'highpass';
+                    hpf.frequency.value = 20; 
+                    hpf.Q.value = -3; // Standard Butterworth-ish response
+
+                    // 2. Lowpass (Damping)
+                    // STABILITY FIX: Q=0 is physically accurate (1-pole). 
+                    // Q=-3 is a hack that isn't needed with correct matrix scaling.
+                    const lpf = ctx.createBiquadFilter();
+                    lpf.type = 'lowpass';
+                    lpf.frequency.value = 15000; 
+                    lpf.Q.value = -3; 
+                    this.dampers.push(lpf);
+
+                    // --- WIRING ---
+                    
+                    // 1. Forward Path: Delay -> Gain -> HPF -> LPF
+                    delay.connect(fbGain);
+                    fbGain.connect(hpf);
+                    hpf.connect(lpf);
+
+                    // 2. Matrix Injection (Send to Summer)
+                    lpf.connect(this.matrixSum);
+
+                    // 3. Feedback Return (Householder)
+                    // Input = Self + (Sum * -2/N)
+                    lpf.connect(delay);        
+                    this.matrixSum.connect(delay);
+
+                    // 4. Output Tap
+                    delay.connect(this.outputMixer);
+                }
+
+                // Connect Input
+                this.delays.forEach(d => this.inputGain.connect(d));
+
+                // --- 4. Parameters ---
+                this.inputs = [{ name: 'In', id: 0, node: this.inputGain }];
+                this.outputs = [{ name: 'Out', id: 0, node: this.outputMixer }];
+
+                this.params = [
+                    {
+                        label: 'Size (Scale)', type: 'range', value: 1.0, min: 0.1, max: 2.0, scale: 'linear',
+                        onChange: (v) => this.setSize(v, ctx)
+                    },
+                    {
+                        label: 'Decay (s)', type: 'range', value: 2.0, min: 0.1, max: 10.0, scale: 'log',
+                        onChange: (v) => this.setDecayTime(v, ctx)
+                    },
+                    {
+                        label: 'Damping', type: 'range', value: 8000, min: 500, max: 20000, scale: 'log',
+                        onChange: (v) => this.setDamping(v, ctx)
+                    },
+                    {
+                        label: 'Mod Rate', type: 'range', value: this.modRateBase, min: 0.01, max: 5.0, scale: 'log',
+                        onChange: (v) => this.setModulationRate(v, ctx)
+                    },
+                    {
+                        label: 'Mod Amt', type: 'range', value: this.modAmount, min: 0, max: 4.0, scale: 'linear',
+                        onChange: (v) => this.setModulationAmount(v, ctx)
+                    }
+                ];
+
+                this.initializeParams();
+                this.computeHeight();
+                
+                // Initial setup
+                this.setSize(1.0, ctx);
+                this.setModulationRate(this.modRateBase, ctx);
+                this.setModulationAmount(this.modAmount, ctx);
+            }
+
+            setSize(scale, ctx) {
+                this.currentSize = Math.max(0.01, scale);
+                this.delays.forEach((d, i) => {
+                    const newTime = this.baseDelays[i] * this.currentSize;
+                    // Limit max delay time to prevent errors
+                    if (newTime < 4.0) d.delayTime.setTargetAtTime(newTime, ctx.currentTime, 0.05);
+                });
+                this.setDecayTime(this.currentDecay, ctx);
+            }
+
+            setDecayTime(seconds, ctx) {
+                this.currentDecay = Math.max(0.01, seconds);
+
+                // 1. Calculate REAL average delay
+                // We sum the actual base delays to get a precise average.
+                const sumBase = this.baseDelays.reduce((a, b) => a + b, 0);
+                const baseAvg = sumBase / this.N;
+                const currentAvgTau = baseAvg * this.currentSize;
+
+                // 2. T60 Formula
+                let g = Math.pow(10, (-3 * currentAvgTau) / this.currentDecay);
+
+                // 3. Stability Cap
+                // 0.997 is the industry standard safety margin for feedback loops.
+                g = Math.min(0.997, g);
+
+                this.feedbackGains.forEach(gn => gn.gain.setTargetAtTime(g, ctx.currentTime, 0.02));
+            }
+
+            setDamping(freq, ctx) {
+                this.dampers.forEach(lpf => lpf.frequency.setTargetAtTime(freq, ctx.currentTime, 0.02));
+            }
+
+            setModulationRate(baseRate, ctx) {
+                this.modRateBase = Math.max(0.01, baseRate);
+                const now = ctx.currentTime;
+                this.lfos.forEach((osc, idx) => {
+                    const freq = Math.max(0.01, this.modRateBase + (idx * this.modRateSpread) + this.lfoTuningOffsets[idx]);
+                    osc.frequency.setTargetAtTime(freq, now, 0.02);
+                });
+            }
+
+            setModulationAmount(amount, ctx) {
+                this.modAmount = Math.max(0, amount);
+                const depth = this.modAmount * 0.001;
+                const now = ctx.currentTime;
+                this.lfoGains.forEach(gn => gn.gain.setTargetAtTime(depth, now, 0.02));
+            }
+        }
+
+        class DiffuserNodeUI extends DSPNode {
+            constructor(x, y, app) {
+                super(x, y, 'Diffuser (Smear)', app);
+                this.type = 'diffuser';
+                this.filterChain = [];
+                this.width = 160;
+                this.baseFrequencies = [500, 1200, 2500, 4000];
+                this.modOscillators = [];
+                this.modGains = [];
+                this.modDepthValue = 0;
+                this.modRateValue = 0.35;
+                this.modRateSpread = 0.05;
+                this.lfoTuningOffsets = [0, 0.01956954, 0.0142, 0.022352, 0.025535];
+            }
+
+            initAudio(ctx) {
+                this.cleanupModulation();
+                // --- 1. Create Input and Output Gains ---
+                this.inputGain = ctx.createGain();
+                this.outputGain = ctx.createGain();
+
+                // --- 2. Define Allpass Filter Parameters ---
+                // These short, non-harmonic delay times prevent metallic ringing.
+                // We simulate a series of first-order APFs by staggering the Biquad center frequencies.
+                // This is the default Q value, controlling the amount of phase shift.
+                const defaultQ = 2.0;
+
+                // --- 3. Build the Internal Filter Chain (Cascade) ---
+                let previousNode = this.inputGain;
+                this.filterChain = [];
+                this.modOscillators = [];
+                this.modGains = [];
+                this.baseFrequencies.forEach((freq, index) => {
+                    const ap = ctx.createBiquadFilter();
+                    ap.type = 'allpass';
+                    ap.frequency.value = freq;
+                    ap.Q.value = defaultQ;
+
+                    const modGain = ctx.createGain();
+                    modGain.gain.value = 0;
+                    this.modGains.push(modGain);
+
+                    const lfo = ctx.createOscillator();
+                    lfo.type = 'sine';
+                    lfo.frequency.value = Math.max(0.01, this.modRateValue + (index * this.modRateSpread) + this.lfoTuningOffsets[index]);
+                    lfo.phase = Math.random() * Math.PI * 2;
+                    lfo.connect(modGain);
+                    modGain.connect(ap.frequency);
+                    lfo.start();
+                    this.modOscillators.push(lfo);
+
+                    // Connect the previous node to this new allpass filter
+                    previousNode.connect(ap);
+                    previousNode = ap;
+                    this.filterChain.push(ap);
+                });
+
+                // --- 4. Connect the last filter to the output gain ---
+                previousNode.connect(this.outputGain);
+
+                // --- 5. Define I/O Ports ---
+                this.inputs = [{ name: 'In', id: 0, node: this.inputGain }];
+                this.outputs = [{ name: 'Out', id: 0, node: this.outputGain }];
+
+                // --- 6. Define User Parameters ---
+                this.params = [
+                    {
+                        label: 'Smear Q',
+                        type: 'range',
+                        value: defaultQ,
+                        min: 0.1,
+                        max: 10,
+                        scale: 'linear',
+                        // When the user changes the Q slider, update ALL internal filters
+                        onChange: (v) => {
+                            this.filterChain.forEach(ap => ap.Q.setTargetAtTime(v, ctx.currentTime, 0.01));
+                        }
+                    },
+                    {
+                        label: 'Mod Depth',
+                        type: 'range',
+                        value: this.modDepthValue,
+                        min: 0,
+                        max: 1,
+                        scale: 'linear',
+                        onChange: (v) => this.setModDepth(v, ctx)
+                    },
+                    {
+                        label: 'Mod Rate',
+                        type: 'range',
+                        value: this.modRateValue,
+                        min: 0.01,
+                        max: 20,
+                        scale: 'log',
+                        onChange: (v) => this.setModRate(v, ctx)
+                    }
+                ];
+
+                this.initializeParams();
+                this.computeHeight();
+                this.setModDepth(this.modDepthValue, ctx);
+                this.setModRate(this.modRateValue, ctx);
+            }
+
+            setModDepth(value, ctx) {
+                this.modDepthValue = Math.max(0, value);
+                const context = ctx || (this.app && this.app.audioCtx);
+                if (!context) return;
+                const now = context.currentTime;
+                const maxRatio = 0.4;
+                this.modGains.forEach((gain, idx) => {
+                    const base = this.baseFrequencies[idx] || 0;
+                    const depthHz = base * maxRatio * this.modDepthValue;
+                    gain.gain.setTargetAtTime(depthHz, now, 0.05);
+                });
+            }
+
+            setModRate(value, ctx) {
+                this.modRateValue = Math.max(0.01, value);
+                const context = ctx || (this.app && this.app.audioCtx);
+                if (!context) return;
+                const now = context.currentTime;
+                this.modOscillators.forEach((osc, idx) => {
+                    const freq = Math.max(0.01, this.modRateValue + (idx * this.modRateSpread) + this.lfoTuningOffsets[idx]);
+                    osc.frequency.setTargetAtTime(freq, now, 0.05);
+                });
+            }
+
+            cleanupModulation() {
+                if (this.modOscillators) {
+                    this.modOscillators.forEach(osc => {
+                        try { osc.stop(); } catch (e) { }
+                        try { osc.disconnect(); } catch (e) { }
+                    });
+                }
+                if (this.modGains) {
+                    this.modGains.forEach(gain => {
+                        try { gain.disconnect(); } catch (e) { }
+                    });
+                }
+                this.modOscillators = [];
+                this.modGains = [];
+            }
+
+            onRemoved() {
+                this.cleanupModulation();
+            }
+        }
+
+        class CombNodeUI extends DSPNode {
+            constructor(x, y, app) {
+                super(x, y, 'Comb (FB)', app);
+                this.type = 'comb';
+            }
+
+            initAudio(ctx) {
+                this.inputGain = ctx.createGain();
+                this.output = ctx.createGain();
+
+                // The Loop Components
+                this.delay = ctx.createDelay(1.0); // Max 1 second
+                this.feedbackGain = ctx.createGain();
+                this.dampFilter = ctx.createBiquadFilter();
+
+                this.dampFilter.type = 'lowpass';
+                this.dampFilter.Q.value = -3.0;
+                this.dampFilter.frequency.value = 6000; // Default "Open" frequency
+
+                // 2. Delay defaults
+                this.delay.delayTime.value = 0.04;
+
+                // 3. Initial Gain
+                this.feedbackGain.gain.value = 0.7;
+
+                // --- Topology: Input -> Delay -> Filter -> Feedback -> Delay ---
+
+                // Signal enters
+                this.inputGain.connect(this.delay);
+
+                this.delay.connect(this.output);
+
+                // Feedback Loop
+                this.delay.connect(this.dampFilter);
+                this.dampFilter.connect(this.feedbackGain);
+                this.feedbackGain.connect(this.delay);
+
+                // --- IO Setup ---
+                this.inputs = [{ name: 'In', id: 0, node: this.inputGain }];
+                this.outputs = [{ name: 'Out', id: 0, node: this.output }];
+
+                // --- Parameters ---
+                this.params = [
+                    {
+                        label: 'Delay (ms)', type: 'range', value: 40, min: 1, max: 100, scale: 'linear',
+                        onChange: (v) => this.setDelayTime(v, ctx)
+                    },
+                    {
+                        label: 'Feedback', type: 'range', value: 0.5, min: 0, max: 1, scale: 'linear',
+                        onChange: (v) => this.setFeedback(v, ctx)
+                    },
+                    {
+                        label: 'Damp', type: 'range', value: 0.5, min: 0, max: 1, scale: 'linear',
+                        onChange: (v) => this.setDamp(v, ctx)
+                    }
+                ];
+
+                // Allow your presets to modulate damp/feedback
+                this.params[1].modulationStrategy = 'override';
+                this.params[2].modulationStrategy = 'override';
+
+                // Initialize
+                this.initializeParams();
+                this.computeHeight();
+            }
+
+            setDelayTime(v, ctx) {
+                // Smooth transition to prevent zipper noise
+                this.delay.delayTime.setTargetAtTime(v / 1000, ctx.currentTime, 0.02);
+            }
+
+            setFeedback(v, ctx) {
+                const min = 0;
+                const max = 1;
+                const scaledGain = min + (v * (max - min));
+
+                this.feedbackGain.gain.setTargetAtTime(scaledGain, ctx.currentTime, 0.02);
+            }
+
+            setDamp(v, ctx) {
+                // Damp = 0 -> Filter Open.
+                // Damp = 1 -> Filter Closed.
+
+                const minFreq = 100;
+                const maxFreq = 20000;
+
+                // Logarithmic mapping acts more like the linear coefficient of the original algorithm
+                // Damp 0 = maxFreq, Damp 1 = minFreq
+                const frequency = minFreq * Math.pow(maxFreq / minFreq, 1 - v);
+
+                this.dampFilter.frequency.setTargetAtTime(frequency, ctx.currentTime, 0.02);
+            }
+        }
+
+        class AllpassNodeUI extends DSPNode {
+            constructor(x, y, app) { super(x, y, 'Allpass (Delay)', app); this.type = 'allpass-delay'; }
+            initAudio(ctx) {
+                this.inputNode = ctx.createGain();
+                this.outputNode = ctx.createGain();
+
+                this.delay = ctx.createDelay(0.5);
+                this.sum1 = ctx.createGain();
+                this.g_inv = ctx.createGain();
+                this.g_fb = ctx.createGain();
+
+                const g = 0.7;
+                const d = 0.05;
+
+                this.delay.delayTime.value = d;
+                this.g_inv.gain.value = -g;
+                this.g_fb.gain.value = g;
+
+                // Graph Structure: y[n] = -g*x[n] + x[n-D] + g*y[n-D] with damped feedback
+                this.inputNode.connect(this.sum1);          // x[n] -> sum
+                this.sum1.connect(this.delay);              // sum -> D
+                this.delay.connect(this.outputNode);        // D -> out
+                this.delay.connect(this.g_fb);              // D -> g
+                this.g_fb.connect(this.sum1);               // g -> sum (feedback)
+                this.inputNode.connect(this.g_inv);         // x[n] -> -g
+                this.g_inv.connect(this.outputNode);        // -g -> out
+
+                this.inputs = [{ name: 'In', id: 0, node: this.inputNode }];
+                this.outputs = [{ name: 'Out', id: 0, node: this.outputNode }];
+
+                this.params = [{
+                    label: 'Delay (ms)', type: 'range', value: 50, min: 1, max: 150, scale: 'log',
+                    onChange: (v) => this.delay.delayTime.setTargetAtTime(v / 1000, ctx.currentTime, 0.02)
+                }, {
+                    label: 'Gain', type: 'range', value: 0.7, min: 0, max: 0.95, scale: 'linear',
+                    onChange: (v) => {
+                        this.g_fb.gain.setTargetAtTime(v, ctx.currentTime, 0.02);
+                        this.g_inv.gain.setTargetAtTime(-v, ctx.currentTime, 0.02);
+                    }
+                }];
+                this.initializeParams();
+                this.computeHeight();
+            }
+        }
+
+        class RingModNodeUI extends DSPNode {
+            constructor(x, y, app) {
+                super(x, y, 'Ring Mod', app);
+                this.type = 'ringmod';
+                this.width = 180;
+                this.frequencyValue = 30;
+                this.depthValue = 1;
+                this.mixValue = 0.5;
+                this.context = null;
+                this.carrierOsc = null;
+                this.carrierGain = null;
+                this.inputNode = null;
+                this.outputNode = null;
+                this.dryGain = null;
+                this.wetGain = null;
+                this.ringGain = null;
+            }
+
+            initAudio(ctx) {
+                this.context = ctx;
+
+                this.inputNode = ctx.createGain();
+                this.outputNode = ctx.createGain();
+                this.dryGain = ctx.createGain();
+                this.wetGain = ctx.createGain();
+                this.ringGain = ctx.createGain();
+                this.ringGain.gain.setValueAtTime(0, ctx.currentTime);
+
+                this.inputs = [{ name: 'In', id: 0, node: this.inputNode }];
+                this.outputs = [{ name: 'Out', id: 0, node: this.outputNode }];
+
+                this.inputNode.connect(this.dryGain);
+                this.dryGain.connect(this.outputNode);
+                this.inputNode.connect(this.ringGain);
+                this.ringGain.connect(this.wetGain);
+                this.wetGain.connect(this.outputNode);
+
+                this.carrierOsc = ctx.createOscillator();
+                this.carrierOsc.type = 'sine';
+                this.carrierOsc.frequency.value = this.frequencyValue;
+                this.carrierGain = ctx.createGain();
+                this.carrierGain.gain.setValueAtTime(this.depthValue, ctx.currentTime);
+                this.carrierOsc.connect(this.carrierGain);
+                this.carrierGain.connect(this.ringGain.gain);
+                this.carrierOsc.start();
+
+                this.params = [
+                    {
+                        label: 'Freq (Hz)', type: 'range', value: this.frequencyValue,
+                        min: 0.5, max: 8000, scale: 'log',
+                        onChange: (v) => this.setFrequency(v, ctx)
+                    },
+                    {
+                        label: 'Depth', type: 'range', value: this.depthValue,
+                        min: 0, max: 1, scale: 'linear',
+                        onChange: (v) => this.setDepth(v, ctx)
+                    },
+                    {
+                        label: 'Mix', type: 'range', value: this.mixValue,
+                        min: 0, max: 1, scale: 'linear',
+                        onChange: (v) => this.setMix(v, ctx)
+                    }
+                ];
+
+                this.initializeParams();
+                this.computeHeight();
+            }
+
+            setFrequency(value, ctx) {
+                this.frequencyValue = value;
+                const context = ctx || this.context;
+                if (this.carrierOsc && context) {
+                    this.carrierOsc.frequency.setTargetAtTime(value, context.currentTime, 0.01);
+                }
+            }
+
+            setDepth(value, ctx) {
+                this.depthValue = value;
+                const context = ctx || this.context;
+                if (this.carrierGain && context) {
+                    this.carrierGain.gain.setTargetAtTime(value, context.currentTime, 0.01);
+                }
+            }
+
+            setMix(value, ctx) {
+                this.mixValue = value;
+                const context = ctx || this.context;
+                if (!context) return;
+                const now = context.currentTime;
+                if (this.dryGain) this.dryGain.gain.setTargetAtTime(1 - value, now, 0.01);
+                if (this.wetGain) this.wetGain.gain.setTargetAtTime(value, now, 0.01);
+            }
+
+            onRemoved() {
+                if (this.carrierOsc) {
+                    try { this.carrierOsc.stop(); } catch (e) { }
+                    this.carrierOsc.disconnect();
+                    this.carrierOsc = null;
+                }
+                if (this.carrierGain) {
+                    try { this.carrierGain.disconnect(); } catch (e) { }
+                    this.carrierGain = null;
+                }
+            }
+        }
+
+        class DistortionNodeUI extends DSPNode {
+            constructor(x, y, app) {
+                super(x, y, 'Distortion', app);
+                this.type = 'distortion';
+                this.width = 170;
+                this.context = null;
+                this.driveValue = 0.5;
+                this.preGainValue = 1;
+                this.mixValue = 0.75;
+                this.inputNode = null;
+                this.outputNode = null;
+                this.preGain = null;
+                this.waveShaper = null;
+                this.dryGain = null;
+                this.wetGain = null;
+            }
+
+            initAudio(ctx) {
+                this.context = ctx;
+
+                this.inputNode = ctx.createGain();
+                this.outputNode = ctx.createGain();
+                this.preGain = ctx.createGain();
+                this.waveShaper = ctx.createWaveShaper();
+                this.waveShaper.oversample = '4x';
+                this.dryGain = ctx.createGain();
+                this.wetGain = ctx.createGain();
+
+                this.inputs = [{ name: 'In', id: 0, node: this.inputNode }];
+                this.outputs = [{ name: 'Out', id: 0, node: this.outputNode }];
+
+                this.inputNode.connect(this.dryGain);
+                this.dryGain.connect(this.outputNode);
+                this.inputNode.connect(this.preGain);
+                this.preGain.connect(this.waveShaper);
+                this.waveShaper.connect(this.wetGain);
+                this.wetGain.connect(this.outputNode);
+
+                this.params = [
+                    {
+                        label: 'Drive', type: 'range', value: this.driveValue,
+                        min: 0, max: 1, scale: 'linear',
+                        onChange: (v) => this.setDrive(v)
+                    },
+                    {
+                        label: 'Pre Gain', type: 'range', value: this.preGainValue,
+                        min: 0, max: 20, scale: 'linear',
+                        onChange: (v) => this.setPreGain(v, ctx)
+                    },
+                    {
+                        label: 'Mix', type: 'range', value: this.mixValue,
+                        min: 0, max: 1, scale: 'linear',
+                        onChange: (v) => this.setMix(v, ctx)
+                    }
+                ];
+
+                this.initializeParams();
+                this.computeHeight();
+            }
+
+            setDrive(value) {
+                this.driveValue = value;
+                if (!this.waveShaper) return;
+                const amount = Math.max(0, value) * 100;
+                this.waveShaper.curve = this.makeDistortionCurve(amount);
+            }
+
+            setPreGain(value, ctx) {
+                this.preGainValue = value;
+                const context = ctx || this.context;
+                if (this.preGain && context) {
+                    this.preGain.gain.setTargetAtTime(value, context.currentTime, 0.01);
+                }
+            }
+
+            setMix(value, ctx) {
+                this.mixValue = value;
+                const context = ctx || this.context;
+                if (!context) return;
+                const now = context.currentTime;
+                if (this.dryGain) this.dryGain.gain.setTargetAtTime(1 - value, now, 0.01);
+                if (this.wetGain) this.wetGain.gain.setTargetAtTime(value, now, 0.01);
+            }
+
+            makeDistortionCurve(amount) {
+                const k = amount;
+                const samples = 44100;
+                const curve = new Float32Array(samples);
+                for (let i = 0; i < samples; i++) {
+                    const x = i * 2 / samples - 1;
+                    curve[i] = (1 + k) * x / (1 + k * Math.abs(x));
+                }
+                return curve;
+            }
+
+            onRemoved() {
+                if (this.waveShaper) {
+                    try { this.waveShaper.disconnect(); } catch (e) { }
+                    this.waveShaper = null;
+                }
+            }
+        }
+
+        class InverterNodeUI extends DSPNode {
+            constructor(x, y, app) {
+                super(x, y, 'Inverter', app);
+                this.type = 'inverter';
+                this.width = 130;
+            }
+
+            initAudio(ctx) {
+                this.node = ctx.createGain();
+                this.node.gain.value = -1;
+
+                this.inputs = [{ name: 'In', id: 0, node: this.node }];
+                this.outputs = [{ name: 'Out', id: 0, node: this.node }];
+
+                this.params = [{
+                    label: 'Gain', type: 'range', value: -1, min: -2, max: 2, scale: 'linear',
+                    onChange: (v) => this.node.gain.setTargetAtTime(v, ctx.currentTime, 0.01)
+                }];
+
+                this.initializeParams();
+                this.computeHeight();
+            }
+        }
+
+        class AdderNodeUI extends DSPNode {
+            constructor(x, y, app) {
+                super(x, y, 'Adder (3ch)', app);
+                this.type = 'adder';
+                this.width = 170;
+                this.inputGains = [];
+                this.sumGain = null;
+            }
+
+            initAudio(ctx) {
+                this.sumGain = ctx.createGain();
+                this.sumGain.gain.value = 1;
+
+                this.inputGains = Array.from({ length: 3 }, () => ctx.createGain());
+                this.inputGains.forEach(g => g.connect(this.sumGain));
+
+                this.inputs = this.inputGains.map((g, idx) => ({ name: `In ${idx + 1}`, id: idx, node: g }));
+                this.outputs = [{ name: 'Out', id: 0, node: this.sumGain }];
+
+                this.params = this.inputGains.map((g, idx) => ({
+                    label: `In ${idx + 1} Level`, type: 'range', value: 1, min: -2, max: 2, scale: 'linear',
+                    onChange: (v) => g.gain.setTargetAtTime(v, ctx.currentTime, 0.01)
+                }));
+
+                this.initializeParams();
+                this.computeHeight();
+            }
+        }
+
+        class AbsoluteNodeUI extends DSPNode {
+            constructor(x, y, app) {
+                super(x, y, 'Absolute', app);
+                this.type = 'abs';
+                this.width = 150;
+                this.inputNode = null;
+                this.shaper = null;
+                this.outputGain = null;
+            }
+
+            initAudio(ctx) {
+                this.inputNode = ctx.createGain();
+                this.shaper = ctx.createWaveShaper();
+                this.outputGain = ctx.createGain();
+
+                this.shaper.curve = this.makeAbsCurve();
+                this.shaper.oversample = '4x';
+
+                this.inputNode.connect(this.shaper);
+                this.shaper.connect(this.outputGain);
+
+                this.inputs = [{ name: 'In', id: 0, node: this.inputNode }];
+                this.outputs = [{ name: 'Out', id: 0, node: this.outputGain }];
+
+                this.params = [{
+                    label: 'Scale', type: 'range', value: 1, min: 0, max: 2, scale: 'linear',
+                    onChange: (v) => this.outputGain.gain.setTargetAtTime(v, ctx.currentTime, 0.01)
+                }];
+
+                this.initializeParams();
+                this.computeHeight();
+            }
+
+            makeAbsCurve() {
+                const samples = 65536;
+                const curve = new Float32Array(samples);
+                for (let i = 0; i < samples; i++) {
+                    const x = (i / (samples - 1)) * 2 - 1;
+                    curve[i] = Math.abs(x);
+                }
+                return curve;
+            }
+
+            onRemoved() {
+                if (this.shaper) {
+                    try { this.shaper.disconnect(); } catch (e) { }
+                    this.shaper = null;
+                }
+            }
+        }
+
+        class ValueNodeUI extends DSPNode {
+            constructor(x, y, app) {
+                super(x, y, 'Value', app);
+                this.type = 'value';
+                this.width = 120;
+                this.constant = null;
+                this.subscribers = [];
+                this.valueTransform = null;
+            }
+
+            initAudio(ctx) {
+                this.constant = ctx.createConstantSource();
+                this.constant.offset.value = 1;
+                this.constant.start();
+
+                this.outputGain = ctx.createGain();
+                this.constant.connect(this.outputGain);
+
+                this.inputs = [];
+                this.outputs = [{ name: 'Out', id: 0, node: this.outputGain }];
+                this.params = [{
+                    label: 'Value', type: 'range', value: 1, min: 0, max: 2, scale: 'linear',
+                    onChange: (v) => {
+                        if (this.constant) this.constant.offset.setTargetAtTime(v, ctx.currentTime, 0.01);
+                        this.notifySubscribers();
+                    }
+                }];
+                this.initializeParams();
+                this.computeHeight();
+            }
+
+            getValue() {
+                const param = this.params && this.params[0];
+                if (!param) return 1;
+                let base;
+                if (typeof param.effectiveValue === 'number') base = param.effectiveValue;
+                else if (typeof param.value === 'number') base = param.value;
+                else base = 1;
+                return this.applyValueTransform(base);
+            }
+
+            applyValueTransform(value) {
+                if (!this.valueTransform || !this.valueTransform.type) return value;
+                const transform = this.valueTransform.type;
+                if (transform === 'samplesToMs') {
+                    const sampleRate = (this.app && this.app.audioCtx && this.app.audioCtx.sampleRate) || 44100;
+                    return (value / sampleRate) * 1000;
+                }
+                return value;
+            }
+
+            setValueTransform(transform) {
+                if (!transform) {
+                    this.valueTransform = null;
+                } else if (typeof transform === 'string') {
+                    this.valueTransform = { type: transform };
+                } else {
+                    this.valueTransform = { ...transform };
+                }
+                this.notifySubscribers();
+            }
+
+            addSubscriber(node, paramIndex) {
+                this.subscribers.push({ node, paramIndex });
+            }
+
+            removeSubscriber(node, paramIndex) {
+                this.subscribers = this.subscribers.filter(s => !(s.node === node && s.paramIndex === paramIndex));
+            }
+
+            notifySubscribers() {
+                this.subscribers.forEach(({ node, paramIndex }) => {
+                    if (node && typeof node.updateParam === 'function') {
+                        node.updateParam(paramIndex);
+                    }
+                });
+            }
+
+            getExtraData() {
+                const base = super.getExtraData();
+                const extra = base ? { ...base } : {};
+                if (this.title !== 'Value') extra.title = this.title;
+                const param = this.params && this.params[0];
+                if (param) {
+                    const overrides = {};
+                    if (param.label !== 'Value') overrides.label = param.label;
+                    if (param.min !== 0) overrides.min = param.min;
+                    if (param.max !== 2) overrides.max = param.max;
+                    if (param.step !== undefined) overrides.step = param.step;
+                    if (param.scale && param.scale !== 'linear') overrides.scale = param.scale;
+                    if (Object.keys(overrides).length) {
+                        extra.paramOverrides = { 0: overrides };
+                    }
+                }
+                if (this.valueTransform) extra.valueTransform = { ...this.valueTransform };
+                return Object.keys(extra).length ? extra : null;
+            }
+
+            restoreExtraData(data) {
+                super.restoreExtraData(data);
+                if (!data) return;
+                if (data.title) this.title = data.title;
+                if (data.paramOverrides && this.params) {
+                    const overrides = data.paramOverrides[0];
+                    if (overrides && this.params[0]) {
+                        Object.assign(this.params[0], overrides);
+                    }
+                }
+                if (data.valueTransform) {
+                    this.valueTransform = { ...data.valueTransform };
+                }
+            }
+
+            onRemoved() {
+                if (this.constant) {
+                    try { this.constant.stop(); } catch (e) { }
+                    this.constant.disconnect();
+                    this.constant = null;
+                }
+                if (this.outputGain) {
+                    try { this.outputGain.disconnect(); } catch (e) { }
+                    this.outputGain = null;
+                }
+                this.context = null;
+            }
+        }
+
+        class MonoNodeUI extends DSPNode {
+            constructor(x, y, app) {
+                super(x, y, 'Mono', app);
+                this.type = 'mono';
+                this.width = 140;
+                this.inputNode = null;
+                this.splitter = null;
+                this.sumGain = null;
+                this.merger = null;
+            }
+
+            initAudio(ctx) {
+                this.inputNode = ctx.createGain();
+                this.splitter = ctx.createChannelSplitter(2);
+                this.sumGain = ctx.createGain();
+                this.sumGain.gain.value = 0.5; // average left and right
+                this.merger = ctx.createChannelMerger(2);
+
+                this.inputNode.connect(this.splitter);
+                this.splitter.connect(this.sumGain, 0);
+                this.splitter.connect(this.sumGain, 1);
+                this.sumGain.connect(this.merger, 0, 0);
+                this.sumGain.connect(this.merger, 0, 1);
+
+                this.inputs = [{ name: 'In', id: 0, node: this.inputNode }];
+                this.outputs = [{ name: 'Out', id: 0, node: this.merger }];
+                this.params = [];
+                this.initializeParams();
+                this.computeHeight();
+            }
+
+            onRemoved() {
+                if (this.inputNode) {
+                    try { this.inputNode.disconnect(); } catch (e) { }
+                }
+                if (this.splitter) {
+                    try { this.splitter.disconnect(); } catch (e) { }
+                }
+                if (this.sumGain) {
+                    try { this.sumGain.disconnect(); } catch (e) { }
+                }
+                if (this.merger) {
+                    try { this.merger.disconnect(); } catch (e) { }
+                }
+                this.inputNode = null;
+                this.splitter = null;
+                this.sumGain = null;
+                this.merger = null;
+            }
+        }
+
+        class SampleHoldNodeUI extends DSPNode {
+            constructor(x, y, app) {
+                super(x, y, 'Sample & Hold', app);
+                this.type = 'samplehold';
+                this.width = 180;
+                this.signalIn = null;
+                this.triggerIn = null;
+                this.outputGain = null;
+                this.workletNode = null;
+                this.processor = null;
+                this.channelMerger = null;
+                this.dummyGain = null;
+                this.holdSource = null;
+                this.context = null;
+                this.heldValue = 0;
+                this.lastTrigger = 0;
+                this.subscribers = [];
+                this.mode = null;
+                this.deferredInit = false;
+                this.loggedUnsupported = false;
+                this.holdSource = null;
+            }
+
+            initAudio(ctx) {
+                if (!ctx) return;
+                this.context = ctx;
+                if (this.mode) return;
+
+                const finalize = () => {
+                    this.inputs = [
+                        { name: 'Signal', id: 0, node: this.signalIn },
+                        { name: 'Trigger', id: 1, node: this.triggerIn }
+                    ];
+                    this.outputs = [{ name: 'Out', id: 0, node: this.outputGain }];
+                    this.params = [];
+                    this.initializeParams();
+                    this.computeHeight();
+                    this.updateHeldValue(this.heldValue);
+                };
+
+                const initProcessor = () => {
+                    if (this.mode) return;
+                    this.initProcessorPipeline(ctx);
+                    finalize();
+                };
+
+                const initWorklet = () => {
+                    if (this.mode) return;
+                    if (!this.initWorkletPipeline(ctx)) {
+                        initProcessor();
+                        return;
+                    }
+                    finalize();
+                };
+
+                if (!SampleHoldNodeUI.shouldUseWorklet(ctx)) {
+                    if (!this.loggedUnsupported) {
+                        console.warn('Sample & Hold node falling back to ScriptProcessor; serve over HTTPS/localhost to enable AudioWorklet.');
+                        this.loggedUnsupported = true;
+                    }
+                    SampleHoldNodeUI.markUnsupported(ctx);
+                    initProcessor();
+                    return;
+                }
+
+                if (!SampleHoldNodeUI.isWorkletReady(ctx)) {
+                    if (this.deferredInit) return;
+                    this.deferredInit = true;
+                    SampleHoldNodeUI.ensureWorklet(ctx)
+                        .then(() => {
+                            this.deferredInit = false;
+                            if (this.context === ctx && !this.mode) initWorklet();
+                        })
+                        .catch((err) => {
+                            this.deferredInit = false;
+                            console.error('Sample & Hold worklet preload failed', err);
+                            if (this.context === ctx && !this.mode) initProcessor();
+                        });
+                    return;
+                }
+
+                initWorklet();
+            }
+
+            setupCommonIO(ctx) {
+                if (!this.signalIn) {
+                    this.signalIn = ctx.createGain();
+                }
+                if (!this.triggerIn) {
+                    this.triggerIn = ctx.createGain();
+                }
+                if (!this.outputGain) {
+                    this.outputGain = ctx.createGain();
+                    this.outputGain.gain.value = 1;
+                }
+                if (!this.holdSource) {
+                    this.holdSource = ctx.createConstantSource();
+                    this.holdSource.offset.value = this.heldValue;
+                    this.holdSource.connect(this.outputGain);
+                    this.holdSource.start();
+                }
+                if (!this.dummyGain) {
+                    this.dummyGain = ctx.createGain();
+                    this.dummyGain.gain.value = 0;
+                    this.dummyGain.connect(ctx.destination);
+                }
+            }
+
+            initWorkletPipeline(ctx) {
+                this.setupCommonIO(ctx);
+                try {
+                    this.workletNode = new AudioWorkletNode(ctx, 'sample-hold-processor', {
+                        numberOfInputs: 2,
+                        numberOfOutputs: 1,
+                        outputChannelCount: [1],
+                        channelCount: 1,
+                        channelCountMode: 'explicit',
+                        channelInterpretation: 'discrete'
+                    });
+                } catch (err) {
+                    console.error('Sample & Hold worklet initialisation failed', err);
+                    this.workletNode = null;
+                    return false;
+                }
+
+                this.mode = 'worklet';
+                this.signalIn.connect(this.workletNode, 0, 0);
+                this.triggerIn.connect(this.workletNode, 0, 1);
+                this.workletNode.connect(this.dummyGain);
+
+                this.workletNode.port.onmessage = (event) => {
+                    const payload = event.data;
+                    const value = typeof payload === 'number' ? payload : (payload && payload.value);
+                    if (typeof value !== 'number' || Number.isNaN(value)) return;
+                    this.updateHeldValue(value);
+                };
+                return true;
+            }
+
+            initProcessorPipeline(ctx) {
+                this.setupCommonIO(ctx);
+                this.channelMerger = ctx.createChannelMerger(2);
+                this.processor = ctx.createScriptProcessor(256, 2, 1);
+                this.processor.channelCountMode = 'explicit';
+                this.processor.channelCount = 2;
+                this.processor.channelInterpretation = 'discrete';
+                this.signalIn.connect(this.channelMerger, 0, 0);
+                this.triggerIn.connect(this.channelMerger, 0, 1);
+                this.channelMerger.connect(this.processor);
+                this.processor.connect(this.dummyGain);
+
+                this.mode = 'processor';
+                this.lastTrigger = 0;
+                this.processor.onaudioprocess = (e) => {
+                    if (!this.outputGain) return;
+                    const signal = e.inputBuffer.getChannelData(0);
+                    const triggerBuffer = e.inputBuffer.numberOfChannels > 1
+                        ? e.inputBuffer.getChannelData(1)
+                        : signal;
+                    const output = e.outputBuffer.getChannelData(0);
+                    for (let i = 0; i < signal.length; i++) {
+                        const trig = triggerBuffer[i];
+                        if (this.lastTrigger <= 0 && trig > 0) {
+                            const sample = signal[i];
+                            if (Math.abs(sample - this.heldValue) > 1e-6) {
+                                const time = this.context.currentTime + (i / this.context.sampleRate);
+                                this.updateHeldValue(sample, time);
+                            }
+                        }
+                        this.lastTrigger = trig;
+                        output[i] = this.heldValue;
+                    }
+                };
+                return true;
+            }
+
+            getValue() {
+                return this.heldValue;
+            }
+
+            addSubscriber(node, paramIndex) {
+                this.subscribers.push({ node, paramIndex });
+            }
+
+            removeSubscriber(node, paramIndex) {
+                this.subscribers = this.subscribers.filter(s => !(s.node === node && s.paramIndex === paramIndex));
+            }
+
+            notifySubscribers() {
+                this.subscribers.forEach(({ node, paramIndex }) => {
+                    if (node && typeof node.updateParam === 'function') {
+                        node.updateParam(paramIndex);
+                    }
+                });
+            }
+
+            onRemoved() {
+                this.deferredInit = false;
+                this.mode = null;
+
+                if (this.workletNode) {
+                    try { this.workletNode.port.onmessage = null; } catch (e) { }
+                    try { this.workletNode.disconnect(); } catch (e) { }
+                }
+                this.workletNode = null;
+
+                if (this.processor) {
+                    try { this.processor.disconnect(); } catch (e) { }
+                    this.processor.onaudioprocess = null;
+                }
+                this.processor = null;
+
+                if (this.channelMerger) {
+                    try { this.channelMerger.disconnect(); } catch (e) { }
+                }
+                this.channelMerger = null;
+
+                if (this.dummyGain) {
+                    try { this.dummyGain.disconnect(); } catch (e) { }
+                }
+                this.dummyGain = null;
+
+                if (this.signalIn) {
+                    try { this.signalIn.disconnect(); } catch (e) { }
+                }
+                this.signalIn = null;
+
+                if (this.triggerIn) {
+                    try { this.triggerIn.disconnect(); } catch (e) { }
+                }
+                this.triggerIn = null;
+
+                if (this.holdSource) {
+                    try { this.holdSource.stop(); } catch (e) { }
+                    try { this.holdSource.disconnect(); } catch (e) { }
+                }
+                this.holdSource = null;
+
+                if (this.outputGain) {
+                    try { this.outputGain.disconnect(); } catch (e) { }
+                }
+                this.outputGain = null;
+
+                this.heldValue = 0;
+                this.lastTrigger = 0;
+            }
+
+            updateHeldValue(value, timeOverride) {
+                if (!isFinite(value)) return;
+                if (Math.abs(value - this.heldValue) < 1e-6) return;
+                this.heldValue = value;
+                if (this.holdSource && this.context) {
+                    const ctx = this.context;
+                    const targetTime = typeof timeOverride === 'number' ? timeOverride : ctx.currentTime;
+                    this.holdSource.offset.setTargetAtTime(value, targetTime, 0.001);
+                }
+                this.notifySubscribers();
+            }
+
+            static shouldUseWorklet(ctx) {
+                if (!ctx) return false;
+                if (typeof window !== 'undefined') {
+                    const protocol = window.location && typeof window.location.protocol === 'string'
+                        ? window.location.protocol.toLowerCase()
+                        : '';
+                    if (protocol && protocol !== 'http:' && protocol !== 'https:') return false;
+                    if (typeof window.isSecureContext !== 'undefined' && window.isSecureContext === false) return false;
+                    if (!window.AudioWorkletNode) return false;
+                }
+                if (!ctx.audioWorklet) return false;
+                if (SampleHoldNodeUI.isWorkletUnsupported(ctx)) return false;
+                return true;
+            }
+
+            static markUnsupported(ctx) {
+                if (!ctx) return;
+                if (!SampleHoldNodeUI._workletStates) {
+                    SampleHoldNodeUI._workletStates = new WeakMap();
+                }
+                SampleHoldNodeUI._workletStates.set(ctx, { ready: false, unsupported: true });
+            }
+
+            static ensureWorklet(ctx) {
+                if (!ctx) return Promise.resolve();
+
+                if (!SampleHoldNodeUI._workletStates) {
+                    SampleHoldNodeUI._workletStates = new WeakMap();
+                }
+
+                const currentState = SampleHoldNodeUI._workletStates.get(ctx);
+                const secure = (typeof window === 'undefined') || (typeof window.isSecureContext === 'undefined') || window.isSecureContext;
+                const hasAPI = !!(ctx.audioWorklet && (typeof window === 'undefined' || window.AudioWorkletNode));
+
+                if (!secure || !hasAPI) {
+                    if (!currentState || !currentState.unsupported) {
+                        SampleHoldNodeUI.markUnsupported(ctx);
+                        console.warn('Sample & Hold node falling back to ScriptProcessor; AudioWorklet requires a secure context.');
+                    }
+                    return Promise.resolve();
+                }
+
+                if (currentState && currentState.ready) return Promise.resolve();
+                if (currentState && currentState.promise) return currentState.promise;
+                if (!SampleHoldNodeUI.workletSource) return Promise.resolve();
+
+                if (!SampleHoldNodeUI._workletUrl) {
+                    SampleHoldNodeUI._workletUrl = URL.createObjectURL(new Blob(
+                        [SampleHoldNodeUI.workletSource],
+                        { type: 'application/javascript' }
+                    ));
+                }
+
+                const promise = ctx.audioWorklet.addModule(SampleHoldNodeUI._workletUrl)
+                    .then(() => {
+                        SampleHoldNodeUI._workletStates.set(ctx, { ready: true });
+                    })
+                    .catch((err) => {
+                        SampleHoldNodeUI.markUnsupported(ctx);
+                        throw err;
+                    });
+
+                SampleHoldNodeUI._workletStates.set(ctx, { ready: false, promise });
+                return promise;
+            }
+
+            static isWorkletReady(ctx) {
+                if (!ctx || !SampleHoldNodeUI._workletStates) return false;
+                const state = SampleHoldNodeUI._workletStates.get(ctx);
+                return !!(state && state.ready);
+            }
+
+            static isWorkletUnsupported(ctx) {
+                if (!ctx || !SampleHoldNodeUI._workletStates) return false;
+                const state = SampleHoldNodeUI._workletStates.get(ctx);
+                return !!(state && state.unsupported);
+            }
+        }
+
+        SampleHoldNodeUI.workletSource = `
+class SampleHoldProcessor extends AudioWorkletProcessor {
+    constructor() {
+        super();
+        this._heldValue = 0;
+        this._lastGate = 0;
+        this.port.postMessage(this._heldValue);
+    }
+
+    process(inputs, outputs) {
+        const outputGroup = outputs[0];
+        if (!outputGroup || outputGroup.length === 0) {
+            return true;
+        }
+
+        const outChannel = outputGroup[0];
+        const signalGroup = inputs[0];
+        const triggerGroup = inputs[1];
+        const signal = signalGroup && signalGroup[0];
+        const trigger = triggerGroup && triggerGroup[0];
+        const gate = trigger || signal;
+
+        if (!signal) {
+            const held = this._heldValue;
+            const tailGate = gate && gate.length ? gate[gate.length - 1] : 0;
+            this._lastGate = tailGate || 0;
+            for (let i = 0; i < outChannel.length; i++) {
+                outChannel[i] = held;
+            }
+            return true;
+        }
+
+        for (let i = 0; i < outChannel.length; i++) {
+            const gateValue = gate ? gate[i] : 0;
+            if (this._lastGate <= 0 && gateValue > 0) {
+                const sample = signal[i];
+                if (sample !== this._heldValue) {
+                    this._heldValue = sample;
+                    this.port.postMessage(this._heldValue);
+                }
+            }
+            this._lastGate = gateValue;
+            outChannel[i] = this._heldValue;
+        }
+
+        return true;
+    }
+}
+
+registerProcessor('sample-hold-processor', SampleHoldProcessor);
+`;
+
+        window.addEventListener('beforeunload', () => {
+            if (SampleHoldNodeUI._workletUrl) {
+                URL.revokeObjectURL(SampleHoldNodeUI._workletUrl);
+                SampleHoldNodeUI._workletUrl = null;
+            }
+        });
+
+        class LFONodeUI extends DSPNode {
+            constructor(x, y, app) {
+                super(x, y, 'LFO', app);
+                this.type = 'lfo';
+                this.width = 160;
+                this.phase = 0;
+                this.currentValue = 1;
+                this.frequency = 1;
+                this.depth = 0.5;
+                this.center = 1;
+                this.waveforms = ['sine', 'triangle', 'sawtooth', 'square', 'random'];
+                this.waveformIndex = 0;
+                this.randomMode = false;
+                this.randomTimer = 0;
+                this.randomValue = 0;
+                this.oscillator = null;
+                this.amplitude = null;
+                this.offsetSource = null;
+                this.outputGain = null;
+                this.context = null;
+                this.startTime = 0;
+                this.subscribers = [];
+            }
+
+            initAudio(ctx) {
+                this.context = ctx;
+                this.outputGain = ctx.createGain();
+                this.outputGain.gain.value = 1;
+
+                this.oscillator = ctx.createOscillator();
+                this.oscillator.type = 'sine';
+                this.oscillator.frequency.value = this.frequency;
+
+                this.amplitude = ctx.createGain();
+                this.amplitude.gain.value = this.depth;
+
+                this.offsetSource = ctx.createConstantSource();
+                this.offsetSource.offset.value = this.center;
+
+                this.oscillator.connect(this.amplitude);
+                this.amplitude.connect(this.outputGain);
+                this.offsetSource.connect(this.outputGain);
+
+                this.oscillator.start();
+                this.offsetSource.start();
+                this.startTime = ctx.currentTime;
+
+                this.inputs = [];
+                this.outputs = [{ name: 'Out', id: 0, node: this.outputGain }];
+                this.params = [
+                    {
+                        label: 'Rate (Hz)', type: 'range', value: 1, min: 0.05, max: 30, scale: 'log',
+                        onChange: (v) => {
+                            this.frequency = v;
+                            if (this.oscillator) {
+                                this.oscillator.frequency.setTargetAtTime(v, ctx.currentTime, 0.02);
+                            }
+                            if (this.randomMode) {
+                                this.randomTimer = 0;
+                            }
+                        }
+                    },
+                    {
+                        label: 'Depth', type: 'range', value: 0.5, min: 0, max: 1, scale: 'linear',
+                        onChange: (v) => this.setDepth(v, ctx)
+                    },
+                    {
+                        label: 'Center', type: 'range', value: 1, min: 0, max: 2, scale: 'linear',
+                        onChange: (v) => this.setCenter(v, ctx)
+                    },
+                    {
+                        label: 'Waveform', type: 'range', value: 0, min: 0, max: 4, step: 1, scale: 'linear',
+                        onChange: (v) => this.setWaveform(v, ctx)
+                    }
+                ];
+                this.initializeParams();
+                this.currentValue = this.center;
+                this.computeHeight();
+                this.app.registerDynamicNode(this);
+            }
+
+            tick(delta, now) {
+                if (!this.context) return;
+                const freq = this.frequency;
+                if (this.randomMode) {
+                    const period = 1 / Math.max(0.0001, freq);
+                    this.randomTimer += delta;
+                    let sampled = false;
+                    while (this.randomTimer >= period) {
+                        this.randomTimer -= period;
+                        this.triggerRandomSample(this.context);
+                        sampled = true;
+                    }
+                    if (!sampled) {
+                        const value = this.center + this.depth * this.randomValue;
+                        this.updateCurrentValue(value);
+                    }
+                    return;
+                }
+
+                const depth = this.depth;
+                const center = this.center;
+                this.phase = (this.phase + delta * Math.max(0.0001, freq)) % 1;
+                const p = this.phase;
+                let shape;
+                switch (this.waveformIndex) {
+                    case 0:
+                        shape = Math.sin(p * Math.PI * 2);
+                        break;
+                    case 1:
+                        if (p < 0.25) shape = p * 4;
+                        else if (p < 0.75) shape = 2 - p * 4;
+                        else shape = p * 4 - 4;
+                        break;
+                    case 2:
+                        shape = (2 * p) - 1;
+                        break;
+                    case 3:
+                        shape = p < 0.5 ? 1 : -1;
+                        break;
+                    default:
+                        shape = Math.sin(p * Math.PI * 2);
+                        break;
+                }
+                const value = center + depth * shape;
+                this.updateCurrentValue(value);
+            }
+
+            getValue() {
+                return this.currentValue;
+            }
+
+            addSubscriber(node, paramIndex) {
+                this.subscribers.push({ node, paramIndex });
+            }
+
+            removeSubscriber(node, paramIndex) {
+                this.subscribers = this.subscribers.filter(s => !(s.node === node && s.paramIndex === paramIndex));
+            }
+
+            notifySubscribers() {
+                this.subscribers.forEach(({ node, paramIndex }) => {
+                    if (node && typeof node.updateParam === 'function') {
+                        node.updateParam(paramIndex);
+                    }
+                });
+            }
+
+            setDepth(value, ctx) {
+                this.depth = value;
+                this.updateDepthGain(ctx || this.context);
+                if (this.randomMode) {
+                    const context = ctx || this.context;
+                    if (this.offsetSource && context) {
+                        const target = this.center + this.depth * this.randomValue;
+                        this.offsetSource.offset.setTargetAtTime(target, context.currentTime, 0.02);
+                        this.updateCurrentValue(target);
+                    }
+                }
+            }
+
+            setCenter(value, ctx) {
+                this.center = value;
+                const context = ctx || this.context;
+                if (!this.offsetSource || !context) return;
+                const target = this.randomMode ? value + this.depth * this.randomValue : value;
+                this.offsetSource.offset.setTargetAtTime(target, context.currentTime, 0.02);
+                this.updateCurrentValue(target);
+            }
+
+            setWaveform(value, ctx) {
+                const context = ctx || this.context;
+                const idx = Math.max(0, Math.min(this.waveforms.length - 1, Math.round(value)));
+                this.waveformIndex = idx;
+                this.randomMode = this.waveforms[idx] === 'random';
+                if (this.params && this.params[3]) {
+                    this.params[3].effectiveValue = idx;
+                }
+                if (this.randomMode) {
+                    this.randomTimer = 0;
+                    this.randomValue = 0;
+                    this.updateDepthGain(context);
+                    if (this.offsetSource && context) {
+                        this.offsetSource.offset.setTargetAtTime(this.center, context.currentTime, 0.02);
+                    }
+                    this.triggerRandomSample(context);
+                } else {
+                    if (this.oscillator) {
+                        this.oscillator.type = this.waveforms[idx];
+                    }
+                    this.updateDepthGain(context);
+                    if (this.offsetSource && context) {
+                        this.offsetSource.offset.setTargetAtTime(this.center, context.currentTime, 0.02);
+                    }
+                    this.updateCurrentValue(this.center);
+                }
+            }
+
+            updateDepthGain(ctx) {
+                const context = ctx || this.context;
+                if (!this.amplitude || !context) return;
+                const now = context.currentTime;
+                const target = this.randomMode ? 0 : this.depth;
+                this.amplitude.gain.setTargetAtTime(target, now, 0.02);
+            }
+
+            triggerRandomSample(ctx) {
+                const context = ctx || this.context;
+                this.randomValue = Math.random() * 2 - 1;
+                const target = this.center + this.depth * this.randomValue;
+                if (this.offsetSource && context) {
+                    this.offsetSource.offset.setTargetAtTime(target, context.currentTime, 0.02);
+                }
+                this.updateCurrentValue(target);
+            }
+
+            updateCurrentValue(value) {
+                if (Math.abs(value - this.currentValue) < 1e-4) return;
+                this.currentValue = value;
+                this.notifySubscribers();
+            }
+
+            onRemoved() {
+                if (this.oscillator) {
+                    try { this.oscillator.stop(); } catch (e) { }
+                    this.oscillator.disconnect();
+                    this.oscillator = null;
+                }
+                if (this.offsetSource) {
+                    try { this.offsetSource.stop(); } catch (e) { }
+                    this.offsetSource.disconnect();
+                    this.offsetSource = null;
+                }
+                if (this.amplitude) {
+                    this.amplitude.disconnect();
+                    this.amplitude = null;
+                }
+                if (this.outputGain) {
+                    try { this.outputGain.disconnect(); } catch (e) { }
+                    this.outputGain = null;
+                }
+                this.app.unregisterDynamicNode(this);
+            }
+        }
+
+        /* * MAIN APP */
+
+        class App {
+            constructor() {
+                this.canvas = document.getElementById('nodeCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.nodes = [];
+                this.connections = [];
+                this.audioCtx = null;
+                this.lastAudioSourceNode = null;
+                this.activeSourceForLoad = null;
+
+                this.draggingNode = null;
+                this.draggingCable = null;
+                this.draggingParam = null;
+                this.hoveredPort = null;
+                this.showDelaySamples = false;
+                this.viewOffset = { x: 0, y: 0 };
+                this.isPanning = false;
+                this.panStart = null;
+                this.panStartOffset = null;
+                this.pitchOctaveOffset = 0;
+                this.activeKeys = new Set();
+                this.scaleKeyMap = {
+                    KeyQ: 0,
+                    KeyW: 2,
+                    KeyE: 4,
+                    KeyR: 5,
+                    KeyT: 7,
+                    KeyY: 9,
+                    KeyU: 11,
+                    KeyI: 12,
+                    KeyO: 14,
+                    KeyP: 16
+                };
+                this.sharpKeyMap = {
+                    Digit2: 1,
+                    Digit3: 3,
+                    Digit5: 6,
+                    Digit6: 8,
+                    Digit7: 10,
+                    Digit9: 13,
+                    Digit0: 15
+                };
+                this.dynamicNodes = new Set();
+                this.lastTickTime = performance.now();
+
+                this.resize();
+                window.addEventListener('resize', () => this.resize());
+                window.addEventListener('keydown', (e) => {
+                    if (e.code === 'Space') {
+                        e.preventDefault();
+                        if (this.lastAudioSourceNode) this.lastAudioSourceNode.trigger(this.lastAudioSourceNode.lastType);
+                        return;
+                    }
+
+                    const diatonic = this.scaleKeyMap.hasOwnProperty(e.code) ? this.scaleKeyMap[e.code] : undefined;
+                    const sharp = this.sharpKeyMap.hasOwnProperty(e.code) ? this.sharpKeyMap[e.code] : undefined;
+                    if (diatonic !== undefined || sharp !== undefined) {
+                        if (this.activeKeys.has(e.code)) return;
+                        this.activeKeys.add(e.code);
+                        const source = this.lastAudioSourceNode;
+                        if (source && source.isPitchable()) {
+                            this.startAudio();
+                            const semitone = diatonic !== undefined ? diatonic : sharp;
+                            source.triggerNote(semitone, this.pitchOctaveOffset);
+                        }
+                        e.preventDefault();
+                        return;
+                    }
+
+                    if (e.code === 'Equal' || e.code === 'NumpadAdd' || e.key === '+') {
+                        this.adjustOctave(1);
+                        e.preventDefault();
+                        return;
+                    }
+
+                    if (e.code === 'Minus' || e.code === 'NumpadSubtract' || e.key === '-') {
+                        this.adjustOctave(-1);
+                        e.preventDefault();
+                    }
+                });
+
+                window.addEventListener('keyup', (e) => {
+                    if (this.scaleKeyMap.hasOwnProperty(e.code) || this.sharpKeyMap.hasOwnProperty(e.code)) {
+                        this.activeKeys.delete(e.code);
+                    }
+                });
+
+                this.setupInput();
+
+                // Init Defaults
+                this.addNode('output', window.innerWidth - 200, window.innerHeight / 2 - 50);
+                this.addNode('audio-source', 50, window.innerHeight / 2 - 100);
+                this.lastAudioSourceNode = this.nodes[1];
+
+                this.loop();
+            }
+
+            async startAudio() {
+                if (this.audioCtx) {
+                    if (this.audioCtx.state === 'suspended') await this.audioCtx.resume();
+                    if (SampleHoldNodeUI.shouldUseWorklet(this.audioCtx)) {
+                        try {
+                            await SampleHoldNodeUI.ensureWorklet(this.audioCtx);
+                        } catch (err) {
+                            console.error('Sample & Hold worklet preload failed', err);
+                        }
+                    }
+                    return;
+                }
+                this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                AudioUtils.init(this.audioCtx);
+                if (SampleHoldNodeUI.shouldUseWorklet(this.audioCtx)) {
+                    try {
+                        await SampleHoldNodeUI.ensureWorklet(this.audioCtx);
+                    } catch (err) {
+                        console.error('Sample & Hold worklet preload failed', err);
+                    }
+                }
+                this.nodes.forEach(n => n.initAudio(this.audioCtx));
+
+                const btn = document.getElementById('btn-start');
+                btn.textContent = "Audio Running";
+                btn.style.background = "#4dff88";
+                btn.style.color = "#000";
+            }
+
+            reset() {
+                if (this.connections.length > 0) {
+                    this.connections.forEach(c => this.disconnect(c));
+                }
+                this.viewOffset.x = 0;
+                this.viewOffset.y = 0;
+                this.isPanning = false;
+                this.panStart = null;
+                this.panStartOffset = null;
+                this.canvas.style.cursor = 'default';
+                this.connections = [];
+                this.nodes.forEach(n => {
+                    if (this.dynamicNodes.has(n)) this.unregisterDynamicNode(n);
+                    if (typeof n.onRemoved === 'function') n.onRemoved();
+                });
+                this.dynamicNodes.clear();
+                this.nodes = [];
+                this.activeSourceForLoad = null;
+                this.addNode('output', this.canvas.width - 200, this.canvas.height / 2 - 50);
+                this.addNode('audio-source', 50, this.canvas.height / 2 - 100);
+                this.lastAudioSourceNode = this.nodes[1];
+            }
+
+            async loadPreset(name) {
+                if (!name) return;
+                await this.startAudio(); // Ensure context
+                this.reset();
+                // Remove default nodes created by reset (except audio source if we want to reuse, but simpler to clear)
+                this.nodes = [];
+                this.connections = [];
+
+                const source = this.addNode('audio-source', 50, 250);
+                const output = this.addNode('output', 1320, 260);
+
+                if (name === 'freeverb-stereo') {
+                    // --- CONSTANTS FOR LAYOUT ---
+                    const startX = 50;          // Controls column
+                    const sourceX = 250;        // Audio Source
+                    const combX = 720;          // Comb Filters column
+                    const allpassStartX = 1180; // Start of Allpass chain
+                    const allpassSpacing = 240; // Distance between Allpasses
+                    const pannerX = 2060;       // Panner column
+                    const mixerX = 2340;        // Wet/Dry
+                    const outX = 2580;          // Final Output
+
+                    // Vertical centers for stereo splitting
+                    const topY = 300;           // Center line for Left Channel
+                    const bottomY = 900;        // Center line for Right Channel
+
+                    // --- 1. GLOBAL SETUP & CONTROLS ---
+
+                    // Setup Audio Source
+                    source.x = sourceX;
+                    source.y = (topY + bottomY) / 2; // Vertically centered
+                    source.computeHeight();
+
+                    // Setup Output
+                    output.x = outX;
+                    output.y = (topY + bottomY) / 2;
+                    output.computeHeight();
+
+                    const sampleRate = this.audioCtx ? this.audioCtx.sampleRate : 44100;
+                    const toMilliseconds = (samples) => (samples / sampleRate) * 1000;
+
+                    // Filter Definitions
+                    const combSampleCounts = [1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617];
+                    const allpassSampleCounts = [556, 441, 341, 225];
+                    const stereoSpreadDefault = 71;
+                    const combFeedback = 1.0;
+                    const combBusOffsetX = 240;
+                    const combInputYOffset = 140;
+
+                    // --- CONTROLS (Stacked on the far left) ---
+                    let ctrlY = 100;
+                    const ctrlGap = 120;
+
+                    const roomSize = this.addNode('value', startX, ctrlY);
+                    roomSize.title = 'Room Size';
+                    this.setNodeParam(roomSize, 0, 0.98); // Default value
+                    roomSize.computeHeight();
+
+                    ctrlY += ctrlGap;
+                    const allpassGain = this.addNode('value', startX, ctrlY);
+                    allpassGain.title = 'Allpass Gain';
+                    this.setNodeParam(allpassGain, 0, 1.0); // Default value (should check this, usually < 1.0 for stability)
+                    allpassGain.computeHeight();
+
+                    ctrlY += ctrlGap;
+                    const allpassDelay = this.addNode('value', startX, ctrlY);
+                    allpassDelay.title = 'Allpass Delay';
+                    this.setNodeParam(allpassDelay, 0, 1.0);
+                    allpassDelay.computeHeight();
+
+                    ctrlY += ctrlGap;
+                    const combDamping = this.addNode('value', startX, ctrlY);
+                    combDamping.title = 'Comb Damp';
+                    const dampParam = combDamping.params[0];
+                    dampParam.label = 'Damp';
+                    dampParam.min = 0;
+                    dampParam.max = 1;
+                    dampParam.step = 0.01;
+                    this.setNodeParam(combDamping, 0, 0.11);
+                    combDamping.computeHeight();
+
+                    ctrlY += ctrlGap;
+                    const stereoSpread = this.addNode('value', startX, ctrlY);
+                    stereoSpread.title = 'Stereo Spread';
+                    const spreadParam = stereoSpread.params[0];
+                    spreadParam.label = 'Spread (smpls)';
+                    spreadParam.min = 0;
+                    spreadParam.max = 100;
+                    spreadParam.step = 1;
+                    stereoSpread.setupParameterIO();
+                    stereoSpread.setValueTransform({ type: 'samplesToMs' });
+                    this.setNodeParam(stereoSpread, 0, stereoSpreadDefault);
+                    stereoSpread.computeHeight();
+
+
+                    // --- 2. POSITIONS CALCULATION ---
+                    // We calculate positions dynamically to ensure perfect spacing
+
+                    // Combs: Stacked vertically. 
+                    // Left channel starts high, Right channel starts low.
+                    const combSpacingY = 80; // Tight vertical packing for combs
+
+                    // Calculate start Y to center the stack of 8 combs around topY and bottomY
+                    const combStackHeight = combSpacingY * (combSampleCounts.length - 1);
+                    const leftCombStartY = topY - (combStackHeight / 2);
+                    const rightCombStartY = bottomY - (combStackHeight / 2);
+
+                    const leftCombPositions = combSampleCounts.map((_, i) => ({
+                        x: combX,
+                        y: leftCombStartY + (i * combSpacingY)
+                    }));
+
+                    const rightCombPositions = combSampleCounts.map((_, i) => ({
+                        x: combX,
+                        y: rightCombStartY + (i * combSpacingY)
+                    }));
+
+                    // Allpasses: Laid out horizontally in series
+                    const leftAllpassPositions = allpassSampleCounts.map((_, i) => ({
+                        x: allpassStartX + (i * allpassSpacing),
+                        y: topY
+                    }));
+
+                    const rightAllpassPositions = allpassSampleCounts.map((_, i) => ({
+                        x: allpassStartX + (i * allpassSpacing),
+                        y: bottomY
+                    }));
+
+
+                    // --- 3. NODE CREATION & WIRING ---
+
+                    // -- LEFT CHANNEL COMBS --
+                    const leftCombInput = this.addNode('gain', combX - combBusOffsetX, topY - combInputYOffset);
+                    leftCombInput.title = 'Comb In L';
+                    this.setNodeParam(leftCombInput, 0, 1);
+
+                    const rightCombInput = this.addNode('gain', combX - combBusOffsetX, bottomY - combInputYOffset);
+                    rightCombInput.title = 'Comb In R';
+                    this.setNodeParam(rightCombInput, 0, 1);
+
+                    this.connect(source, 0, leftCombInput, 0);
+                    this.connect(source, 0, rightCombInput, 0);
+
+                    const leftCombNodes = combSampleCounts.map((samples, idx) => {
+                        const pos = leftCombPositions[idx];
+                        const node = this.addNode('comb', pos.x, pos.y);
+                        this.setNodeParam(node, 0, toMilliseconds(samples));
+                        this.setNodeParam(node, 1, combFeedback);
+
+                        // Signal Input
+                        this.connect(leftCombInput, 0, node, 0);
+                        // Parameter Input
+                        this.connect(roomSize, 0, node, 1, 'param');
+                        this.connect(combDamping, 0, node, 2, 'param');
+                        return node;
+                    });
+
+                    // -- RIGHT CHANNEL COMBS (With Spread) --
+                    const rightCombNodes = combSampleCounts.map((samples, idx) => {
+                        const pos = rightCombPositions[idx];
+                        const node = this.addNode('comb', pos.x, pos.y);
+                        node.params[0].modulationStrategy = 'add'; // Important for spread
+
+                        this.setNodeParam(node, 0, toMilliseconds(samples));
+                        this.setNodeParam(node, 1, combFeedback);
+
+                        // Signal Input
+                        this.connect(rightCombInput, 0, node, 0);
+                        // Parameter Inputs
+                        this.connect(roomSize, 0, node, 1, 'param');
+                        this.connect(stereoSpread, 0, node, 0, 'param'); // Apply spread modulation
+                        this.connect(combDamping, 0, node, 2, 'param');
+                        return node;
+                    });
+
+                    const leftCombOutput = this.addNode('gain', allpassStartX - combBusOffsetX, topY);
+                    leftCombOutput.title = 'Comb Out L';
+                    this.setNodeParam(leftCombOutput, 0, 1);
+
+                    const rightCombOutput = this.addNode('gain', allpassStartX - combBusOffsetX, bottomY);
+                    rightCombOutput.title = 'Comb Out R';
+                    this.setNodeParam(rightCombOutput, 0, 1);
+
+                    // -- LEFT CHANNEL ALLPASS CHAIN --
+                    const leftAllpassNodes = allpassSampleCounts.map((samples, idx) => {
+                        const pos = leftAllpassPositions[idx];
+                        const node = this.addNode('allpass-delay', pos.x, pos.y);
+                        this.setNodeParam(node, 0, toMilliseconds(samples));
+                        this.setNodeParam(node, 1, 0.5);
+
+                        // Controls
+                        this.connect(allpassDelay, 0, node, 0, 'param');
+                        this.connect(allpassGain, 0, node, 1, 'param');
+                        return node;
+                    });
+
+                    // -- RIGHT CHANNEL ALLPASS CHAIN --
+                    const rightAllpassNodes = allpassSampleCounts.map((samples, idx) => {
+                        const pos = rightAllpassPositions[idx];
+                        const node = this.addNode('allpass-delay', pos.x, pos.y);
+                        node.params[0].modulationStrategy = 'add';
+
+                        this.setNodeParam(node, 0, toMilliseconds(samples));
+                        this.setNodeParam(node, 1, 0.5);
+
+                        // Controls
+                        this.connect(allpassDelay, 0, node, 0, 'param');
+                        this.connect(allpassGain, 0, node, 1, 'param');
+                        this.connect(stereoSpread, 0, node, 0, 'param');
+                        return node;
+                    });
+
+
+                    // --- 4. SIGNAL ROUTING ---
+
+                    // Sum Left Combs -> First Left Allpass
+                    leftCombNodes.forEach(node => this.connect(node, 0, leftCombOutput, 0));
+                    this.connect(leftCombOutput, 0, leftAllpassNodes[0], 0);
+
+                    // Sum Right Combs -> First Right Allpass
+                    rightCombNodes.forEach(node => this.connect(node, 0, rightCombOutput, 0));
+                    this.connect(rightCombOutput, 0, rightAllpassNodes[0], 0);
+
+                    // Series connections for Allpasses
+                    for (let i = 0; i < leftAllpassNodes.length - 1; i++) {
+                        this.connect(leftAllpassNodes[i], 0, leftAllpassNodes[i + 1], 0);
+                        this.connect(rightAllpassNodes[i], 0, rightAllpassNodes[i + 1], 0);
+                    }
+
+
+                    // --- 5. OUTPUT STAGE ---
+
+                    // Left Panner
+                    const panLeft = this.addNode('panner', pannerX, topY);
+                    panLeft.title = 'Pan L';
+                    panLeft.computeHeight();
+                    this.setNodeParam(panLeft, 0, -1); // Hard Left
+                    this.connect(leftAllpassNodes[leftAllpassNodes.length - 1], 0, panLeft, 0);
+
+                    // Right Panner
+                    const panRight = this.addNode('panner', pannerX, bottomY);
+                    panRight.title = 'Pan R';
+                    panRight.computeHeight();
+                    this.setNodeParam(panRight, 0, 1); // Hard Right
+                    this.connect(rightAllpassNodes[rightAllpassNodes.length - 1], 0, panRight, 0);
+
+                    // Wet/Dry Mixer
+                    const wetDry = this.addNode('wetdry', mixerX, (topY + bottomY) / 2);
+                    this.setNodeParam(wetDry, 0, 0.075); // Mix
+                    this.setNodeParam(wetDry, 1, 0.7); // Volume
+
+                    // Attenuate panner outputs before the wet mix
+                    const panGainOffsetX = 220;
+                    const panGainOffsetY = 100;
+                    const panLeftGain = this.addNode('gain', mixerX - panGainOffsetX, topY - panGainOffsetY);
+                    this.setNodeParam(panLeftGain, 0, 0.1);
+                    const panRightGain = this.addNode('gain', mixerX - panGainOffsetX, bottomY - panGainOffsetY);
+                    this.setNodeParam(panRightGain, 0, 0.1);
+
+                    this.connect(panLeft, 0, panLeftGain, 0);
+                    this.connect(panRight, 0, panRightGain, 0);
+                    this.connect(panLeftGain, 0, wetDry, 1);
+                    this.connect(panRightGain, 0, wetDry, 1);
+
+                    // Route Audio Source to Dry Input
+                    this.connect(source, 0, wetDry, 0);
+
+                    // Final Output
+                    this.connect(wetDry, 0, output, 0);
+                }
+                else if (name === 'fdn-hall') {
+                    // --- LAYOUT ---
+                    const startX = 50;
+                    const sourceX = 250;
+                    const preFxX = 500;   // PreDelay + Diffusers
+                    const bloomX = 750;   // The "Bloom" FDN (Short & Dense)
+                    const splitX = 1000;  // Stereo Split point
+                    const tailX = 1250;   // The "Tail" FDNs (Long & Lush)
+                    const eqX = 1500;
+                    const panX = 1750;
+                    const mixerX = 2000;
+                    const outX = 2250;
+
+                    const topY = 300;
+                    const botY = 700;
+                    const midY = (topY + botY) / 2;
+
+                    // --- HELPER ---
+                    const setOverride = (node, paramIndex) => {
+                        if (node && node.params && node.params[paramIndex]) {
+                            node.params[paramIndex].modulationStrategy = 'override';
+                        }
+                    };
+
+                    // --- 1. GLOBAL SETUP ---
+                    source.x = sourceX; source.y = midY; source.computeHeight();
+                    output.x = outX; output.y = midY; output.computeHeight();
+
+                    // --- 2. MACROS ---
+                    const macroTime = this.addNode('value', startX, 150);
+                    macroTime.title = 'Total Time';
+                    this.setNodeParam(macroTime, 0, 5.0); 
+                    macroTime.computeHeight();
+
+                    const macroSize = this.addNode('value', startX, 280);
+                    macroSize.title = 'Room Size';
+                    this.setNodeParam(macroSize, 0, 1.0);
+                    macroSize.computeHeight();
+
+                    // --- 3. DENSITY STAGE (The "Smear") ---
+                    
+                    // Pre-Delay
+                    const preDelay = this.addNode('delay', preFxX, midY - 100);
+                    preDelay.title = 'Pre-Delay';
+                    this.setNodeParam(preDelay, 0, 0.02); // 20ms
+                    preDelay.computeHeight();
+
+                    // Diffuser 1 (Sharp Attack Smear)
+                    const diff1 = this.addNode('diffuser', preFxX, midY + 50);
+                    diff1.title = 'Diffuser A';
+                    this.setNodeParam(diff1, 0, 2.5);
+                    diff1.computeHeight();
+
+                    // Diffuser 2 (Softening Smear) - Chained in series
+                    const diff2 = this.addNode('diffuser', preFxX, midY + 200);
+                    diff2.title = 'Diffuser B';
+                    this.setNodeParam(diff2, 0, 1.5);
+                    diff2.computeHeight();
+
+                    // --- 4. BLOOM STAGE (The "Cloud") ---
+                    // This is a single FDN set to very small size. 
+                    // It creates the "Early Reflections" cluster.
+                    const fdnBloom = this.addNode('fdn-scalable', bloomX, midY);
+                    if (fdnBloom) {
+                        fdnBloom.title = 'Bloom Tank';
+                        // Size 0.3 = Very short delays (echo density)
+                        this.setNodeParam(fdnBloom, 0, 0.3); 
+                        // Decay 0.7s = Short burst of reverb
+                        this.setNodeParam(fdnBloom, 1, 0.7); 
+                        // Modulation 1.5 = Very high to blur the echoes
+                        this.setNodeParam(fdnBloom, 3, 1.5); 
+                        // High Cut 12k = Open
+                        this.setNodeParam(fdnBloom, 2, 12000); 
+                        fdnBloom.computeHeight();
+                    }
+
+                    // --- 5. TAIL STAGE (The "Lushness") ---
+                    // Two large parallel FDNs fed by the Bloom FDN.
+
+                    const fdnL = this.addNode('fdn-scalable', tailX, topY);
+                    if (fdnL) {
+                        fdnL.title = 'Tail Left';
+                        this.setNodeParam(fdnL, 0, 1.5); // Large Hall
+                        setOverride(fdnL, 1); // Decay linked to Macro
+                        setOverride(fdnL, 0); // Size linked to Macro
+                        fdnL.computeHeight();
+                    }
+
+                    const fdnR = this.addNode('fdn-scalable', tailX, botY);
+                    if (fdnR) {
+                        fdnR.title = 'Tail Right';
+                        this.setNodeParam(fdnR, 0, 1.54); // Decorrelated Size
+                        setOverride(fdnR, 1); // Decay linked to Macro
+                        setOverride(fdnR, 0); // Size linked to Macro
+                        fdnR.computeHeight();
+                    }
+
+                    // --- 6. EQ & IMAGE ---
+                    
+                    // High Shelf (Air)
+                    const eqL = this.addNode('hpf', eqX, topY); // Using HPF as Low Cut
+                    eqL.title = 'Low Cut L';
+                    this.setNodeParam(eqL, 0, 200); // Clear out mud
+                    
+                    const eqR = this.addNode('hpf', eqX, botY);
+                    eqR.title = 'Low Cut R';
+                    this.setNodeParam(eqR, 0, 200);
+
+                    // Panners
+                    const panL = this.addNode('panner', panX, topY);
+                    this.setNodeParam(panL, 0, -0.9); // Wide Left
+                    
+                    const panR = this.addNode('panner', panX, botY);
+                    this.setNodeParam(panR, 0, 0.9); // Wide Right
+
+                    // --- 7. MIXER ---
+                    const wetDry = this.addNode('wetdry', mixerX, midY);
+                    this.setNodeParam(wetDry, 0, 0.45);
+                    this.setNodeParam(wetDry, 1, 1.0);
+
+                    // --- ROUTING ---
+                    
+                    // 1. Dry Signal
+                    this.connect(source, 0, wetDry, 0);
+
+                    // 2. The Density Chain (Series)
+                    // Source -> PreDelay -> Diffuser A -> Diffuser B -> Bloom Tank
+                    this.connect(source, 0, preDelay, 0);
+                    this.connect(preDelay, 0, diff1, 0);
+                    this.connect(diff1, 0, diff2, 0);
+                    
+                    if (fdnBloom) {
+                        this.connect(diff2, 0, fdnBloom, 0);
+                        
+                        // 3. The Tail Split
+                        // Bloom Tank -> Left & Right Tail Tanks
+                        if (fdnL && fdnR) {
+                            this.connect(fdnBloom, 0, fdnL, 0);
+                            this.connect(fdnBloom, 0, fdnR, 0);
+                            
+                            // 4. Post Processing
+                            this.connect(fdnL, 0, eqL, 0);
+                            this.connect(fdnR, 0, eqR, 0);
+                            
+                            this.connect(eqL, 0, panL, 0);
+                            this.connect(eqR, 0, panR, 0);
+                            
+                            // 5. To Mixer
+                            const wetGainOffsetX = 200;
+                            const wetGainOffsetY = 120;
+                            const wetLeftTrim = this.addNode('gain', mixerX - wetGainOffsetX, topY - wetGainOffsetY);
+                            const wetRightTrim = this.addNode('gain', mixerX - wetGainOffsetX, botY + wetGainOffsetY);
+                            this.setNodeParam(wetLeftTrim, 0, 0.1);
+                            this.setNodeParam(wetRightTrim, 0, 0.1);
+
+                            this.connect(panL, 0, wetLeftTrim, 0);
+                            this.connect(panR, 0, wetRightTrim, 0);
+                            this.connect(wetLeftTrim, 0, wetDry, 1);
+                            this.connect(wetRightTrim, 0, wetDry, 1);
+                            
+                            // 6. Macro Connections
+                            // Link "Total Time" to the Tail Decay
+                            this.connect(macroTime, 0, fdnL, 1, 'param');
+                            this.connect(macroTime, 0, fdnR, 1, 'param');
+                            
+                            // Link "Room Size" to the Tail Size
+                            this.connect(macroSize, 0, fdnL, 0, 'param');
+                            this.connect(macroSize, 0, fdnR, 0, 'param');
+                        }
+                    }
+                    
+                    this.connect(wetDry, 0, output, 0);
+                }
+                else if (name === 'dub') {
+                    // Dub Delay with Filter in Feedback Loop
+                    // Audio Source -> Mixer -> Delay -> LPF -> Mixer (ch2)
+                    //                     |
+                    //                     -> Output
+
+                    const mixer = this.addNode('mixer', 300, 250);
+                    const delay = this.addNode('delay', 500, 250);
+                    const lpf = this.addNode('lpf', 500, 450);
+
+                    // Setup
+                    this.setNodeParam(delay, 0, 0.3); // 300ms
+                    this.setNodeParam(lpf, 0, 800); // 800Hz Cutoff
+                    this.setNodeParam(mixer, 0, 1.0); // In Vol
+                    this.setNodeParam(mixer, 1, 0.8); // Feedback Vol (Regen)
+
+                    // Wiring
+                    this.connect(source, 0, mixer, 0); // Audio Source -> Mixer In 1
+                    this.connect(mixer, 0, delay, 0);   // Mixer Out -> Delay In
+                    this.connect(delay, 0, output, 0);  // Delay -> Output
+                    this.connect(delay, 0, lpf, 0);     // Delay -> LPF
+                    this.connect(lpf, 0, mixer, 1);     // LPF -> Mixer In 2 (Feedback)
+                }
+                else if (name === 'chorus') {
+                    // Simple Chorus: Dry + Delay(Modulated)
+                    // Audio Source -> Comb (very short) -> Out
+                    // Audio Source -> Out
+
+                    const comb = this.addNode('comb', 400, 200);
+                    this.setNodeParam(comb, 0, 15); // 15ms
+                    this.setNodeParam(comb, 1, 0.6);
+
+                    this.connect(source, 0, comb, 0);
+                    this.connect(comb, 0, output, 0);
+                    this.connect(source, 0, output, 0); // Dry
+                }
+
+                this.lastAudioSourceNode = source;
+            }
+
+            // Helper to set params by index
+            setNodeParam(node, idx, val) {
+                if (node && node.params[idx]) {
+                    node.params[idx].value = val;
+                    node.updateParam(idx);
+                }
+            }
+
+            registerDynamicNode(node) {
+                this.dynamicNodes.add(node);
+            }
+
+            unregisterDynamicNode(node) {
+                this.dynamicNodes.delete(node);
+            }
+
+            adjustOctave(delta) {
+                const limit = 4;
+                const next = Math.max(-limit, Math.min(limit, this.pitchOctaveOffset + delta));
+                if (next === this.pitchOctaveOffset) return;
+                this.pitchOctaveOffset = next;
+                console.log(`Octave offset: ${this.pitchOctaveOffset}`);
+            }
+
+            // Map a pointer position into the appropriate slider value for the active parameter.
+            setParamValueFromPointer(target, pointerX) {
+                if (!target || !target.node || !target.param) return;
+                const node = target.node;
+                const param = target.param;
+                const sliderX = node.x + 10;
+                const sliderWidth = node.width - 20;
+                if (sliderWidth <= 0) return;
+
+                let norm = (pointerX - sliderX) / sliderWidth;
+                norm = Math.max(0, Math.min(1, norm));
+
+                let newVal;
+                if (param.scale === 'log') {
+                    newVal = AudioUtils.toLog(norm, param.min, param.max);
+                } else {
+                    newVal = param.min + (param.max - param.min) * norm;
+                }
+
+                if (param.step) {
+                    newVal = Math.round(newVal / param.step) * param.step;
+                }
+
+                newVal = Math.min(param.max, Math.max(param.min, newVal));
+
+                if (Math.abs(newVal - param.value) < 1e-6) return;
+                param.value = newVal;
+                if (typeof target.index === 'number') {
+                    node.updateParam(target.index);
+                } else {
+                    param.onChange(newVal);
+                }
+            }
+
+            resetParamToDefault(node, index) {
+                if (!node || !node.params || !node.params[index]) return false;
+                const param = node.params[index];
+                if (param.defaultValue === undefined) return false;
+                const resetValue = param.defaultValue;
+                if (typeof resetValue === 'number' && Math.abs(param.value - resetValue) < 1e-6) {
+                    return true;
+                }
+                param.value = resetValue;
+                node.updateParam(index);
+                return true;
+            }
+
+            /* SAVE / LOAD SYSTEM */
+
+            saveGraph() {
+                const data = {
+                    nodes: this.nodes.map(n => n.getSnapshot()),
+                    connections: this.connections.map(c => ({
+                        fromNodeId: c.fromNode.id,
+                        fromPort: c.fromPort,
+                        toNodeId: c.toNode.id,
+                        toPort: c.toPort,
+                        kind: c.kind,
+                        paramIndex: c.paramIndex
+                    }))
+                };
+                const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = 'dps-playground-patch.json';
+                a.click();
+            }
+
+            loadGraph(input) {
+                const file = input.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    const data = JSON.parse(e.target.result);
+                    await this.startAudio(); // Ensure audio context exists
+
+                    // Clear current
+                    this.connections.forEach(c => this.disconnect(c));
+                    this.connections = [];
+                    this.nodes.forEach(n => {
+                        if (this.dynamicNodes.has(n)) this.unregisterDynamicNode(n);
+                        if (typeof n.onRemoved === 'function') n.onRemoved();
+                    });
+                    this.dynamicNodes.clear();
+                    this.nodes = [];
+                    this.activeSourceForLoad = null;
+
+                    // Rebuild Nodes
+                    const nodeMap = {};
+                    (data.nodes || []).forEach(nData => {
+                        const node = this.createNodeInstance(nData.type, nData.x, nData.y);
+                        node.id = nData.id || crypto.randomUUID();
+                        node.initAudio(this.audioCtx);
+
+                        if (nData.extra) {
+                            node.restoreExtraData(nData.extra);
+                            if (typeof node.computeHeight === 'function') {
+                                node.computeHeight();
+                            }
+                        }
+
+                        // Restore Params
+                        if (nData.params) {
+                            nData.params.forEach((val, i) => {
+                                if (node.params[i]) {
+                                    this.setNodeParam(node, i, val);
+                                }
+                            });
+                        }
+
+                        this.nodes.push(node);
+                        nodeMap[node.id] = node;
+                    });
+
+                    // Rebuild Connections
+                    (data.connections || []).forEach(c => {
+                        const from = nodeMap[c.fromNodeId];
+                        const to = nodeMap[c.toNodeId];
+                        if (from && to) {
+                            this.connect(from, c.fromPort, to, c.toPort, c.kind || 'audio');
+                        }
+                    });
+
+                    // Re-set active audio source
+                    const sources = this.nodes.filter(n => n.type === 'audio-source' || n.type === 'sampler');
+                    if (sources.length > 0) this.lastAudioSourceNode = sources[0];
+                };
+                reader.readAsText(file);
+                input.value = ''; // reset
+            }
+
+            addNode(type, x, y) {
+                if (x === undefined) x = this.canvas.width / 2 - 70 - this.viewOffset.x;
+                if (y === undefined) y = this.canvas.height / 2 - 50 - this.viewOffset.y;
+
+                // Snap to grid
+                x = Math.round(x / 20) * 20;
+                y = Math.round(y / 20) * 20;
+
+                const n = this.createNodeInstance(type, x, y);
+                if (this.audioCtx) n.initAudio(this.audioCtx);
+                this.nodes.push(n);
+                if (type === 'audio-source' || type === 'sampler') this.lastAudioSourceNode = n;
+                return n; // Return for scripting
+            }
+
+            createNodeInstance(type, x, y) {
+                switch (type) {
+                    case 'output': return new OutputNode(x, y, this);
+                    case 'audio-source': return new AudioSourceNode(x, y, this);
+                    case 'sampler': return new AudioSourceNode(x, y, this);
+                    case 'gain': return new GainNodeUI(x, y, this);
+                    case 'mixer': return new MixerNodeUI(x, y, this);
+                    case 'wetdry': return new WetDryNodeUI(x, y, this);
+                    case 'panner': return new PannerNodeUI(x, y, this);
+                    case 'delay': return new DelayNodeUI(x, y, this);
+                    case 'comb': return new CombNodeUI(x, y, this);
+                    case 'allpass-delay': return new AllpassNodeUI(x, y, this);
+                    case 'lpf': return new BiquadNodeUI(x, y, this, 'lowpass');
+                    case 'hpf': return new BiquadNodeUI(x, y, this, 'highpass');
+                    case 'bpf': return new BiquadNodeUI(x, y, this, 'bandpass');
+                    case 'notch': return new BiquadNodeUI(x, y, this, 'notch');
+                    case 'diffuser': return new DiffuserNodeUI(x, y, this);
+                    case 'fdn-scalable': return new FDNNodeUI(x, y, this);
+                    case 'ringmod': return new RingModNodeUI(x, y, this);
+                    case 'mono': return new MonoNodeUI(x, y, this);
+                    case 'allpass': return new BiquadNodeUI(x, y, this, 'allpass');
+                    case 'distortion': return new DistortionNodeUI(x, y, this);
+                    case 'adder': return new AdderNodeUI(x, y, this);
+                    case 'inverter': return new InverterNodeUI(x, y, this);
+                    case 'abs': return new AbsoluteNodeUI(x, y, this);
+                    case 'samplehold': return new SampleHoldNodeUI(x, y, this);
+                    case 'lfo': return new LFONodeUI(x, y, this);
+                    case 'value': return new ValueNodeUI(x, y, this);
+                    default: return new GainNodeUI(x, y, this);
+                }
+            }
+
+            deleteNode(node) {
+                if (node.type === 'output') return; // Keep output
+                if (this.dynamicNodes.has(node)) this.unregisterDynamicNode(node);
+                if (typeof node.onRemoved === 'function') node.onRemoved();
+                if (this.activeSourceForLoad === node) this.activeSourceForLoad = null;
+                this.connections = this.connections.filter(c => {
+                    if (c.fromNode === node || c.toNode === node) {
+                        this.disconnect(c);
+                        return false;
+                    }
+                    return true;
+                });
+                this.nodes = this.nodes.filter(n => n !== node);
+            }
+
+            connect(fromNode, fromPort, toNode, toPort, targetKind = 'audio') {
+                if (targetKind === 'param') {
+                    const paramInput = toNode.paramInputs && toNode.paramInputs[toPort];
+                    if (!paramInput) return;
+                    const modList = toNode.paramModulators[paramInput.paramIndex] || (toNode.paramModulators[paramInput.paramIndex] = []);
+                    if (modList.some(entry => entry.node === fromNode)) return;
+                    modList.push({ node: fromNode });
+                    if (typeof fromNode.addSubscriber === 'function') {
+                        fromNode.addSubscriber(toNode, paramInput.paramIndex);
+                    }
+                    toNode.updateParam(paramInput.paramIndex);
+                    this.connections.push({ kind: 'param', fromNode, fromPort, toNode, toPort, paramIndex: paramInput.paramIndex });
+                    return;
+                }
+
+                const fromOut = fromNode.outputs[fromPort] && fromNode.outputs[fromPort].node;
+                const toIn = toNode.inputs[toPort] && toNode.inputs[toPort].node;
+                if (fromOut && toIn) {
+                    try { fromOut.connect(toIn); }
+                    catch (e) { console.error("Connection failed", e); }
+                }
+                this.connections.push({ kind: 'audio', fromNode, fromPort, toNode, toPort });
+            }
+
+            disconnect(conn) {
+                if (conn.kind === 'param') {
+                    const { toNode, paramIndex, fromNode } = conn;
+                    if (toNode && typeof toNode.removeParamModulator === 'function') {
+                        toNode.removeParamModulator(paramIndex, fromNode);
+                        toNode.updateParam(paramIndex);
+                    }
+                    if (fromNode && typeof fromNode.removeSubscriber === 'function') {
+                        fromNode.removeSubscriber(toNode, paramIndex);
+                    }
+                    return;
+                }
+
+                const src = conn.fromNode.outputs[conn.fromPort].node;
+                const dest = conn.toNode.inputs[conn.toPort].node;
+                if (src && dest) {
+                    try { src.disconnect(dest); } catch (e) { }
+                }
+            }
+
+            resize() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+            }
+
+            setupInput() {
+                document.getElementById('btn-start').addEventListener('click', () => this.startAudio());
+                const delayUnitButton = document.getElementById('btn-toggle-delay-units');
+                if (delayUnitButton) {
+                    delayUnitButton.addEventListener('click', () => {
+                        this.showDelaySamples = !this.showDelaySamples;
+                        delayUnitButton.textContent = `Delay Units: ${this.showDelaySamples ? 'samples' : 'ms'}`;
+                    });
+                }
+
+                // File input delegation
+                const audioInput = document.getElementById('audio-input');
+                audioInput.addEventListener('change', (e) => {
+                    if (this.activeSourceForLoad && e.target.files[0]) {
+                        this.activeSourceForLoad.loadCustomSample(e.target.files[0]);
+                    }
+                    this.activeSourceForLoad = null;
+                    audioInput.value = '';
+                });
+
+                const getMousePos = (e) => {
+                    const r = this.canvas.getBoundingClientRect();
+                    return {
+                        x: e.clientX - r.left - this.viewOffset.x,
+                        y: e.clientY - r.top - this.viewOffset.y
+                    };
+                };
+
+                this.canvas.addEventListener('mousedown', (e) => {
+                    if (e.button === 1) {
+                        e.preventDefault();
+                        this.isPanning = true;
+                        this.panStart = { x: e.clientX, y: e.clientY };
+                        this.panStartOffset = { x: this.viewOffset.x, y: this.viewOffset.y };
+                        this.canvas.style.cursor = 'grabbing';
+                        this.draggingNode = null;
+                        this.draggingCable = null;
+                        this.draggingParam = null;
+                        this.hoveredPort = null;
+                        return;
+                    }
+
+                    const { x, y } = getMousePos(e);
+
+                    // Reverse iterate for Z-index (top first)
+                    for (let i = this.nodes.length - 1; i >= 0; i--) {
+                        const n = this.nodes[i];
+
+                        const isAudioSourceNode = n.type === 'audio-source' || n.type === 'sampler';
+
+                        // 1. Check Audio Source UI
+                        if (isAudioSourceNode) {
+                            const btnW = 60; const btnH = 20; const gap = 5;
+                            const buttons = ['kick', 'snare', 'hh', 'sine', 'saw', 'square', 'triangle', 'noise', 'mic', 'custom'];
+                            let bx = n.x + 10, by = n.y + n.headerHeight + 10;
+
+                            // Audio Triggers
+                            for (let j = 0; j < buttons.length; j++) {
+                                if (x >= bx && x <= bx + btnW && y >= by && y <= by + btnH) {
+                                    n.trigger(buttons[j]);
+                                    return;
+                                }
+                                bx += btnW + gap;
+                                if (bx + btnW > n.x + n.width - 10) { bx = n.x + 10; by += btnH + gap; }
+                            }
+
+                            // Load Button
+                            const loadX = n.x + 10;
+                            const loadY = by + 5;
+                            const loadW = 90;
+                            const loadH = 22;
+                            if (x >= loadX && x <= loadX + loadW && y >= loadY && y <= loadY + loadH) {
+                                this.activeSourceForLoad = n;
+                                document.getElementById('audio-input').click();
+                                return;
+                            }
+                        }
+
+                        // 2. Check Output Ports first so they are easy to grab near sliders
+                        for (let j = 0; j < n.outputs.length; j++) {
+                            const p = n.getPortPos(false, j);
+                            if (Math.hypot(x - p.x, y - p.y) < 10) {
+                                this.draggingCable = { fromNode: n, fromPort: j, x: x, y: y };
+                                return;
+                            }
+                        }
+
+                        // 3. Check Params (slider body only)
+                        const paramBaseOffset = isAudioSourceNode ? 100 : 24;
+                        const paramSpacing = n.paramSpacing || 48;
+                        for (let idx = 0; idx < n.params.length; idx++) {
+                            const p = n.params[idx];
+                            const sliderX = n.x + 10;
+                            const sliderWidth = n.width - 20;
+                            const slotTop = typeof n.getParamSlotTop === 'function'
+                                ? n.getParamSlotTop(idx)
+                                : n.y + n.headerHeight + paramBaseOffset + (idx * paramSpacing);
+                            const captureTop = slotTop + 16;
+                            const captureBottom = slotTop + paramSpacing;
+
+                            if (x >= sliderX && x <= sliderX + sliderWidth && y >= captureTop && y <= captureBottom) {
+                                this.draggingParam = { node: n, param: p, index: idx };
+                                this.setParamValueFromPointer(this.draggingParam, x);
+                                return;
+                            }
+                        }
+
+                        // 4. Node Drag
+                        if (x >= n.x && x <= n.x + n.width && y >= n.y && y <= n.y + n.headerHeight) {
+                            this.draggingNode = n;
+                            n.dragOffset = { x: x - n.x, y: y - n.y };
+                            // Bring to front
+                            this.nodes.splice(i, 1);
+                            this.nodes.push(n);
+                            return;
+                        }
+                    }
+                });
+
+                this.canvas.addEventListener('mousemove', (e) => {
+                    if (this.isPanning) return;
+                    const { x, y } = getMousePos(e);
+
+                    if (this.draggingNode) {
+                        this.draggingNode.x = x - this.draggingNode.dragOffset.x;
+                        this.draggingNode.y = y - this.draggingNode.dragOffset.y;
+                        // Snap
+                        this.draggingNode.x = Math.round(this.draggingNode.x / 20) * 20;
+                        this.draggingNode.y = Math.round(this.draggingNode.y / 20) * 20;
+
+                    } else if (this.draggingCable) {
+                        this.draggingCable.x = x;
+                        this.draggingCable.y = y;
+                    } else if (this.draggingParam) {
+                        this.setParamValueFromPointer(this.draggingParam, x);
+                    }
+
+                    // Hover
+                    this.hoveredPort = null;
+                    if (this.draggingCable) {
+                        for (let n of this.nodes) {
+                            if (n === this.draggingCable.fromNode) continue;
+                            for (let j = 0; j < n.inputs.length; j++) {
+                                const p = n.getPortPos(true, j);
+                                if (Math.hypot(x - p.x, y - p.y) < 15) {
+                                    this.hoveredPort = { node: n, index: j, kind: 'audio' };
+                                }
+                            }
+                            if (n.paramInputs) {
+                                for (let j = 0; j < n.paramInputs.length; j++) {
+                                    const pos = n.getParamInputPos(j);
+                                    if (Math.hypot(x - pos.x, y - pos.y) < 15) {
+                                        this.hoveredPort = { node: n, index: j, kind: 'param' };
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+
+                this.canvas.addEventListener('mouseup', (e) => {
+                    if (this.draggingCable && this.hoveredPort) {
+                        this.connect(
+                            this.draggingCable.fromNode,
+                            this.draggingCable.fromPort,
+                            this.hoveredPort.node,
+                            this.hoveredPort.index,
+                            this.hoveredPort.kind || 'audio'
+                        );
+                    }
+                    this.draggingNode = null;
+                    this.draggingCable = null;
+                    this.draggingParam = null;
+                });
+
+                window.addEventListener('mousemove', (e) => {
+                    if (!this.isPanning || !this.panStart || !this.panStartOffset) return;
+                    const dx = e.clientX - this.panStart.x;
+                    const dy = e.clientY - this.panStart.y;
+                    this.viewOffset.x = this.panStartOffset.x + dx;
+                    this.viewOffset.y = this.panStartOffset.y + dy;
+                    this.hoveredPort = null;
+                });
+
+                window.addEventListener('mouseup', (e) => {
+                    if (e.button === 1 && this.isPanning) {
+                        this.isPanning = false;
+                        this.panStart = null;
+                        this.panStartOffset = null;
+                        this.canvas.style.cursor = 'default';
+                    }
+                });
+
+                this.canvas.addEventListener('dblclick', (e) => {
+                    const { x, y } = getMousePos(e);
+
+                    for (let i = this.nodes.length - 1; i >= 0; i--) {
+                        const n = this.nodes[i];
+                        if (!n.params || !n.params.length) continue;
+                        const isAudioSourceNode = n.type === 'audio-source' || n.type === 'sampler';
+                        const paramBaseOffset = isAudioSourceNode ? 100 : 24;
+                        const paramSpacing = n.paramSpacing || 48;
+                        for (let idx = 0; idx < n.params.length; idx++) {
+                            const sliderX = n.x + 10;
+                            const sliderWidth = n.width - 20;
+                            const slotTop = typeof n.getParamSlotTop === 'function'
+                                ? n.getParamSlotTop(idx)
+                                : n.y + n.headerHeight + paramBaseOffset + (idx * paramSpacing);
+                            const captureTop = slotTop + 16;
+                            const captureBottom = slotTop + paramSpacing;
+                            if (x >= sliderX && x <= sliderX + sliderWidth && y >= captureTop && y <= captureBottom) {
+                                if (this.resetParamToDefault(n, idx)) {
+                                    return;
+                                }
+                            }
+                        }
+                    }
+
+                    // Improved Hit Test for Bezier Curves
+                    for (let i = 0; i < this.connections.length; i++) {
+                        const c = this.connections[i];
+                        const p1 = c.fromNode.getPortPos(false, c.fromPort);
+                        const p2 = c.kind === 'param'
+                            ? c.toNode.getParamInputPos(c.toPort)
+                            : c.toNode.getPortPos(true, c.toPort);
+
+                        // Check multiple points along the curve
+                        let hit = false;
+                        const cp1x = p1.x + Math.abs(p2.x - p1.x) * 0.5;
+                        const cp2x = p2.x - Math.abs(p2.x - p1.x) * 0.5;
+
+                        for (let t = 0; t <= 1; t += 0.1) {
+                            const it = 1 - t;
+                            const bx = (it * it * it) * p1.x + 3 * (it * it) * t * cp1x + 3 * it * (t * t) * cp2x + (t * t * t) * p2.x;
+                            const by = (it * it * it) * p1.y + 3 * (it * it) * t * p1.y + 3 * it * (t * t) * p2.y + (t * t * t) * p2.y;
+
+                            if (Math.hypot(x - bx, y - by) < 10) {
+                                hit = true; break;
+                            }
+                        }
+
+                        if (hit) {
+                            this.disconnect(c);
+                            this.connections.splice(i, 1);
+                            return;
+                        }
+                    }
+                });
+
+                this.canvas.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    const { x, y } = getMousePos(e);
+                    for (let n of this.nodes) {
+                        if (n.isPointInside(x, y)) {
+                            this.deleteNode(n);
+                            return;
+                        }
+                    }
+                });
+            }
+
+            drawNode(n) {
+                const ctx = this.ctx;
+                const w = n.width;
+                const h = n.height;
+                const r = 6;
+                const screenX = n.x + this.viewOffset.x;
+                const screenY = n.y + this.viewOffset.y;
+
+                // Body
+                ctx.fillStyle = '#2d2d2d';
+                const isAudioSourceNode = n.type === 'audio-source' || n.type === 'sampler';
+                const isActiveSource = n === this.lastAudioSourceNode && isAudioSourceNode;
+                ctx.strokeStyle = isActiveSource ? '#00d2ff' : '#555';
+                ctx.lineWidth = isActiveSource ? 2 : 1;
+                ctx.beginPath();
+                ctx.roundRect(screenX, screenY, w, h, r);
+                ctx.fill();
+                ctx.stroke();
+
+                // Header
+                ctx.fillStyle = '#404040';
+                ctx.beginPath();
+                ctx.roundRect(screenX, screenY, w, n.headerHeight, [r, r, 0, 0]);
+                ctx.fill();
+
+                // Title
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 12px sans-serif';
+                ctx.fillText(n.title, screenX + 10, screenY + 17);
+
+                // Inputs
+                n.inputs.forEach((inp, i) => {
+                    const pos = n.getPortPos(true, i);
+                    const sx = pos.x + this.viewOffset.x;
+                    const sy = pos.y + this.viewOffset.y;
+                    ctx.fillStyle = '#ff4d4d';
+                    ctx.beginPath(); ctx.arc(sx, sy, 5, 0, Math.PI * 2); ctx.fill();
+                });
+
+                // Outputs
+                n.outputs.forEach((out, i) => {
+                    const pos = n.getPortPos(false, i);
+                    const sx = pos.x + this.viewOffset.x;
+                    const sy = pos.y + this.viewOffset.y;
+                    ctx.fillStyle = '#4dff88';
+                    ctx.beginPath(); ctx.arc(sx, sy, 5, 0, Math.PI * 2); ctx.fill();
+                });
+
+                if (isAudioSourceNode) {
+                    const buttons = ['kick', 'snare', 'hh', 'sine', 'saw', 'square', 'triangle', 'noise', 'mic', 'custom'];
+                    let bx = screenX + 10;
+                    let by = screenY + n.headerHeight + 10;
+                    const btnW = 60;
+                    const btnH = 20;
+                    const gap = 5;
+                    let buttonsBottom = by;
+
+                    ctx.font = '9px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    buttons.forEach(b => {
+                        let fill = '#555';
+                        if (b === 'mic') {
+                            if (n.micActive) fill = '#2e7d32';
+                            else if (n.micPending) fill = '#8c6d1f';
+                            else if (n.micError) fill = '#8c1f1f';
+                            else if (n.lastType === 'mic') fill = '#006d9c';
+                        } else if (b === n.lastType) {
+                            fill = '#006d9c';
+                        }
+                        ctx.fillStyle = fill;
+                        ctx.fillRect(bx, by, btnW, btnH);
+                        ctx.fillStyle = '#fff';
+                        let label = b.toUpperCase();
+                        if (b === 'mic') {
+                            if (n.micActive) label = 'MIC ON';
+                            else if (n.micPending) label = 'MIC...';
+                            else if (n.micError) label = 'MIC ERR';
+                        }
+                        ctx.fillText(label, bx + btnW / 2, by + btnH / 2);
+                        const bottom = by + btnH;
+                        if (bottom > buttonsBottom) buttonsBottom = bottom;
+                        bx += btnW + gap;
+                        if (bx + btnW > screenX + w - 10) {
+                            bx = screenX + 10;
+                            by += btnH + gap;
+                        }
+                    });
+
+                    const loadX = screenX + 10;
+                    const loadY = buttonsBottom + gap;
+                    const loadW = 90;
+                    const loadH = 22;
+                    ctx.fillStyle = '#444';
+                    ctx.fillRect(loadX, loadY, loadW, loadH);
+                    ctx.fillStyle = '#ccc';
+                    ctx.fillText('LOAD FILE', loadX + loadW / 2, loadY + loadH / 2);
+
+                    let statusY = loadY + loadH + 14;
+                    if (n.micPending) {
+                        ctx.fillStyle = '#ffd54f';
+                        ctx.fillText('Mic: requesting...', loadX, statusY);
+                        statusY += 12;
+                    } else if (n.micActive) {
+                        ctx.fillStyle = '#4dff88';
+                        ctx.fillText('Mic: active', loadX, statusY);
+                        statusY += 12;
+                    } else if (n.micError) {
+                        ctx.fillStyle = '#ff6b6b';
+                        const message = typeof n.micError === 'string'
+                            ? n.micError
+                            : (n.micError && n.micError.message) ? n.micError.message : 'unavailable';
+                        const display = message.length > 36 ? `${message.slice(0, 33)}...` : message;
+                        ctx.fillText(`Mic: ${display}`, loadX, statusY);
+                        statusY += 12;
+                    }
+
+                    ctx.textAlign = 'start';
+                    ctx.textBaseline = 'alphabetic';
+                }
+
+                if (n.type === 'output' && n.analyser && this.audioCtx) {
+                    const scopeX = screenX + 12;
+                    const scopeY = screenY + n.headerHeight + 8;
+                    const scopeW = Math.max(20, w - 24);
+                    const scopeH = Math.max(16, Math.min(40, h - n.headerHeight - 16));
+
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.rect(scopeX, scopeY, scopeW, scopeH);
+                    ctx.clip();
+
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(scopeX, scopeY, scopeW, scopeH);
+
+                    n.analyser.getByteTimeDomainData(n.visualData);
+                    ctx.lineWidth = 1;
+                    ctx.strokeStyle = '#00d2ff';
+                    ctx.beginPath();
+                    const sliceWidth = scopeW * 1.0 / n.visualData.length;
+                    let px = 0;
+                    for (let i = 0; i < n.visualData.length; i++) {
+                        const v = n.visualData[i] / 128.0;
+                        const py = scopeY + (v * scopeH / 2);
+                        const sx = scopeX + px;
+                        if (i === 0) ctx.moveTo(sx, py);
+                        else ctx.lineTo(sx, py);
+                        px += sliceWidth;
+                    }
+                    ctx.stroke();
+                    ctx.restore();
+                }
+
+                // Sliders
+                const paramBaseOffset = isAudioSourceNode ? 100 : 24;
+                const paramSpacing = n.paramSpacing || 40;
+                const sliderTopOffset = 24;
+                const sliderHeight = 6;
+                const sliderPadding = 4;
+                const sampleRate = this.audioCtx ? this.audioCtx.sampleRate : 44100;
+                n.params.forEach((p, idx) => {
+                    const slotTop = typeof n.getParamSlotTop === 'function'
+                        ? n.getParamSlotTop(idx)
+                        : n.y + n.headerHeight + paramBaseOffset + (idx * paramSpacing);
+                    ctx.fillStyle = '#aaa';
+                    ctx.font = '10px sans-serif';
+                    const effectiveVal = typeof p.effectiveValue === 'number' ? p.effectiveValue : p.value;
+                    const hasMod = typeof p.value === 'number' && typeof effectiveVal === 'number' && Math.abs(effectiveVal - p.value) > 1e-6;
+
+                    const formatValue = (val) => {
+                        if (typeof val !== 'number' || Number.isNaN(val)) return `${val}`;
+                        if (p.label === 'Waveform') {
+                            const waveNames = ['Sine', 'Triangle', 'Saw', 'Square', 'Random'];
+                            const idx = Math.max(0, Math.min(waveNames.length - 1, Math.round(val)));
+                            return waveNames[idx];
+                        }
+                        if (p.label.includes('Delay (ms)')) {
+                            const msVal = val.toFixed(2);
+                            let text = `${msVal} ms`;
+                            if (this.showDelaySamples) {
+                                const samples = Math.round((val / 1000) * sampleRate);
+                                text += ` (${samples} samples)`;
+                            }
+                            return text;
+                        }
+                        if (p.label.includes('Time (s)')) {
+                            const secVal = val.toFixed(3);
+                            let text = `${secVal} s`;
+                            if (this.showDelaySamples) {
+                                const samples = Math.round(val * sampleRate);
+                                text += ` (${samples} samples)`;
+                            }
+                            return text;
+                        }
+                        if (p.label.includes('Hz')) {
+                            const decimals = val >= 10 ? 1 : 2;
+                            return `${val.toFixed(decimals)} Hz`;
+                        }
+                        const magnitude = Math.abs(val);
+                        const decimals = magnitude >= 10 ? 2 : 3;
+                        return parseFloat(val.toFixed(decimals)).toString();
+                    };
+
+                    const baseText = formatValue(p.value);
+                    const effectiveText = formatValue(effectiveVal);
+                    const displayText = hasMod ? `${baseText} -> ${effectiveText}` : baseText;
+                    const slotTopScreen = slotTop + this.viewOffset.y;
+                    const sliderX = screenX + 10;
+                    const sliderWidth = w - 20;
+                    const sliderY = slotTopScreen + sliderTopOffset;
+                    const sliderMidY = sliderY + sliderHeight / 2;
+                    const textY = slotTopScreen + 12;
+                    ctx.fillText(`${p.label}: ${displayText}`, screenX + 10, textY);
+
+                    if (n.paramInputs && n.paramInputs[idx]) {
+                        const paramPos = n.getParamInputPos(idx);
+                        const spx = paramPos.x + this.viewOffset.x;
+                        const spy = paramPos.y + this.viewOffset.y;
+                        const portRadius = 5;
+                        ctx.fillStyle = '#ffd54f';
+                        ctx.beginPath();
+                        ctx.arc(spx, spy, portRadius, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.strokeStyle = '#b8860b';
+                        ctx.lineWidth = 1;
+                        ctx.beginPath();
+                        ctx.arc(spx, spy, portRadius, 0, Math.PI * 2);
+                        ctx.stroke();
+                    }
+
+                    ctx.fillStyle = '#333';
+                    ctx.fillRect(sliderX, sliderY, sliderWidth, sliderHeight);
+
+                    let pct;
+                    if (p.scale === 'log') {
+                        pct = AudioUtils.fromLog(p.value, p.min, p.max);
+                    } else {
+                        const range = p.max - p.min;
+                        pct = range === 0 ? 0 : (p.value - p.min) / range;
+                    }
+                    pct = Math.max(0, Math.min(1, pct));
+
+                    const knobHalf = 6;
+                    const knobX = sliderX + pct * sliderWidth;
+                    const clampedKnobX = Math.min(sliderX + sliderWidth - knobHalf, Math.max(sliderX + knobHalf, knobX));
+
+                    ctx.fillStyle = '#00d2ff';
+                    ctx.fillRect(clampedKnobX - knobHalf, sliderY - sliderPadding, knobHalf * 2, sliderHeight + sliderPadding * 2);
+                });
+                ctx.strokeStyle = '#555';
+                ctx.lineWidth = 1;
+            }
+
+            drawCable(x1, y1, x2, y2, active, kind = 'audio') {
+                const ctx = this.ctx;
+                const sx1 = x1 + this.viewOffset.x;
+                const sy1 = y1 + this.viewOffset.y;
+                const sx2 = x2 + this.viewOffset.x;
+                const sy2 = y2 + this.viewOffset.y;
+                ctx.beginPath();
+                const cp1x = sx1 + Math.abs(sx2 - sx1) * 0.5;
+                const cp2x = sx2 - Math.abs(sx2 - sx1) * 0.5;
+                ctx.moveTo(sx1, sy1);
+                ctx.bezierCurveTo(cp1x, sy1, cp2x, sy2, sx2, sy2);
+                if (active) ctx.strokeStyle = '#fff';
+                else ctx.strokeStyle = kind === 'param' ? '#ffd54f' : '#888';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+
+            loop() {
+                const now = performance.now();
+                const delta = Math.min(0.1, Math.max(0, (now - this.lastTickTime) / 1000));
+                if (delta > 0) {
+                    this.dynamicNodes.forEach(node => {
+                        if (typeof node.tick === 'function') node.tick(delta, now / 1000);
+                    });
+                }
+                this.lastTickTime = now;
+
+                const ctx = this.ctx;
+                ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+                const gs = 20;
+                ctx.strokeStyle = '#222';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+
+                const startX = ((Math.floor((-this.viewOffset.x) / gs) - 1) * gs) + this.viewOffset.x;
+                for (let x = startX; x < this.canvas.width + gs; x += gs) {
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, this.canvas.height);
+                }
+
+                const startY = ((Math.floor((-this.viewOffset.y) / gs) - 1) * gs) + this.viewOffset.y;
+                for (let y = startY; y < this.canvas.height + gs; y += gs) {
+                    ctx.moveTo(0, y);
+                    ctx.lineTo(this.canvas.width, y);
+                }
+
+                ctx.stroke();
+
+                this.connections.forEach(c => {
+                    const p1 = c.fromNode.getPortPos(false, c.fromPort);
+                    const p2 = c.kind === 'param'
+                        ? c.toNode.getParamInputPos(c.toPort)
+                        : c.toNode.getPortPos(true, c.toPort);
+                    this.drawCable(p1.x, p1.y, p2.x, p2.y, false, c.kind || 'audio');
+                });
+
+                if (this.draggingCable) {
+                    const p1 = this.draggingCable.fromNode.getPortPos(false, this.draggingCable.fromPort);
+                    const hoverKind = this.hoveredPort ? this.hoveredPort.kind : 'audio';
+                    this.drawCable(p1.x, p1.y, this.draggingCable.x, this.draggingCable.y, true, hoverKind || 'audio');
+                }
+
+                this.nodes.forEach(n => this.drawNode(n));
+                requestAnimationFrame(() => this.loop());
+            }
+        }
+
+        const app = new App();
+
+    </script>
+</body>
+
+</html>
