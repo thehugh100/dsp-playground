@@ -7,6 +7,10 @@ export class OutputNode extends DSPNode {
         this.width = 140;
         this.analyser = null;
         this.visualData = null;
+        
+        // Initialize inputs array so node can render before audio starts
+        this.inputs = [{ name: 'L/R', id: 0, node: null }];
+        this.computeHeight();
     }
 
     initAudio(ctx) {
@@ -24,7 +28,6 @@ export class OutputNode extends DSPNode {
         this.analyser.connect(this.limiter);
         this.limiter.connect(ctx.destination);
 
-        this.inputs = [{ name: 'L/R', id: 0, node: this.analyser }];
-        this.computeHeight();
+        this.inputs[0].node = this.analyser;
     }
 }

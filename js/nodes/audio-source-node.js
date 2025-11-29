@@ -17,14 +17,17 @@ export class AudioSourceNode extends DSPNode {
         this.micActive = false;
         this.micPending = false;
         this.micError = null;
+        
+        // Initialize outputs array so node can render before audio starts
+        this.outputs = [{ name: 'Out', id: 0, node: null }];
+        this.computeHeight();
     }
 
     initAudio(ctx) {
         this.tag = Math.random().toString(36).slice(2, 6);
         this.outNode = ctx.createGain();
         this.outNode._debugLabel = `Audio Source Out [${this.tag}]`;
-        this.outputs = [{ name: 'Out', id: 0, node: this.outNode }];
-        this.computeHeight();
+        this.outputs[0].node = this.outNode;
     }
 
     isTypePitchable(type) {

@@ -219,6 +219,7 @@ export class App {
         this.setupInput();
 
         // Init Defaults
+        this.audioStarted = false;
         this.addNode('output', window.innerWidth - 200, window.innerHeight / 2 - 50);
         this.addNode('audio-source', 50, window.innerHeight / 2 - 100);
         this.lastAudioSourceNode = this.nodes[1];
@@ -262,11 +263,6 @@ export class App {
             }
         }
         this.nodes.forEach(n => n.initAudio(this.audioCtx));
-
-        const btn = document.getElementById('btn-start');
-        btn.textContent = "Audio Running";
-        btn.style.background = "#4dff88";
-        btn.style.color = "#000";
     }
 
     reset() {
@@ -297,6 +293,11 @@ export class App {
 
     async loadPreset(name) {
         if (!name) return;
+        // Auto-start audio on preset load
+        if (!this.audioStarted) {
+            this.audioStarted = true;
+            await this.startAudio();
+        }
         const presetId = name.trim();
         if (!presetId) return;
         try {
@@ -554,6 +555,12 @@ export class App {
         console.log(`Adding node of type: ${type}`);
         if (x === undefined) x = this.canvas.width / 2 - 70 - this.viewOffset.x;
         if (y === undefined) y = this.canvas.height / 2 - 50 - this.viewOffset.y;
+
+        // Auto-start audio on first node addition (toolbar clicks)
+        if (!this.audioStarted && x === this.canvas.width / 2 - 70 - this.viewOffset.x) {
+            this.audioStarted = true;
+            this.startAudio();
+        }
 
         // Snap to grid
         x = Math.round(x / 20) * 20;
@@ -875,7 +882,6 @@ export class App {
     }
 
     setupInput() {
-        document.getElementById('btn-start').addEventListener('click', () => this.startAudio());
         const delayUnitButton = document.getElementById('btn-toggle-delay-units');
         if (delayUnitButton) {
             delayUnitButton.addEventListener('click', () => {
@@ -903,6 +909,12 @@ export class App {
         };
 
         this.canvas.addEventListener('mousedown', (e) => {
+            // Auto-start audio on first interaction
+            if (!this.audioStarted) {
+                this.audioStarted = true;
+                this.startAudio();
+            }
+
             if (e.button === 1) {
                 e.preventDefault();
                 this.isPanning = true;
@@ -1289,7 +1301,7 @@ export class App {
             ctx.textBaseline = 'alphabetic';
         }
 
-        if (n.type === 'output' && n.analyser && this.audioCtx) {
+        if (n.type === 'output' && n.analyser) {
             const scopeX = screenX + 12;
             const scopeY = screenY + n.headerHeight + 8;
             const scopeW = Math.max(20, w - 24);

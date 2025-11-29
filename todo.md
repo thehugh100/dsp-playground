@@ -10,5 +10,6 @@
 - Make nodes mono by default, add stereo inputs/outputs where needed (audio out etc)
 - Panner - use circular qwpanning law
 - type precise values
-- Record button?
+- Record button / render output
 - Fix custom load button
+- Allow midi in to control parameters / synth nodes

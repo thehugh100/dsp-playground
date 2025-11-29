@@ -28,8 +28,6 @@
 
     <div id="toolbar">
         <div class="node-group">
-            <button id="btn-start" class="primary">Start Audio Engine</button>
-            <div class="toolbar-separator"></div>
             <button onclick="app.addNode('audio-source')">Audio Source</button>
             <button onclick="app.addNode('gain')">Gain</button>
             <button onclick="app.addNode('mixer')">Mixer</button>
@@ -60,7 +58,7 @@
         </div>
         <div class="action-group">
             <select id="preset-select" onchange="app.loadPreset(this.value); this.value='';">
-                <option value="" disabled selected>Presets...</option>
+                <option value="" disabled selected>Presets</option>
                 <option value="shroeder-topology">Schroeder Topology</option>
                 <option value="quadraverb-topology">Quadraverb Topology</option>
                 <option value="ping-pong-delay">Ping Pong Delay</option>
