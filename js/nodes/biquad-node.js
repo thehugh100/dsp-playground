@@ -38,7 +38,7 @@ export class BiquadNodeUI extends DSPNode {
         this.outputs = [{ name: 'Out', id: 0, node: this.node }];
 
         this.params = [{
-            label: 'Freq (Hz)', type: 'range', value: this.node.frequency.value, min: 20, max: 15000, scale: 'log',
+            label: 'Freq (Hz)', type: 'range', value: this.node.frequency.value, min: 20, max: 15000, scale: this.filterType === 'allpass' ? 'linear' : 'log',
             onChange: (v) => this.node.frequency.setTargetAtTime(v, ctx.currentTime, 0.02)
         },
         {
