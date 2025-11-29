@@ -24,6 +24,7 @@ import { MonoNodeUI } from './nodes/mono-node.js';
 import { SampleHoldNodeUI } from './nodes/samplehold-node.js';
 import { LFONodeUI } from './nodes/lfo-node.js';
 import { ChaosNodeUI } from './nodes/chaos-node.js';
+import { EnvelopeFollowerNode } from './nodes/envelope-follower-node.js';
 
 export class App {
     debugParams() {
@@ -128,6 +129,8 @@ export class App {
         this.draggingParam = null;
         this.hoveredPort = null;
         this.hoveredCable = null;
+        this.lassoStart = null;
+        this.lassoEnd = null;
         this.showDelaySamples = false;
         this.viewOffset = { x: 0, y: 0 };
         this.isPanning = false;
@@ -605,6 +608,7 @@ export class App {
             case 'samplehold': return new SampleHoldNodeUI(x, y, this);
             case 'lfo': return new LFONodeUI(x, y, this);
             case 'chaos': return new ChaosNodeUI(x, y, this);
+            case 'envelope-follower': return new EnvelopeFollowerNode(x, y, this);
             case 'value': return new ValueNodeUI(x, y, this);
             default: return new GainNodeUI(x, y, this);
         }
@@ -804,6 +808,14 @@ export class App {
         }
 
         return closestConnection;
+    }
+
+    nodeIntersectsRect(node, x1, y1, x2, y2) {
+        // Check if node rectangle intersects with selection rectangle
+        const nodeRight = node.x + node.width;
+        const nodeBottom = node.y + node.height;
+        
+        return !(node.x > x2 || nodeRight < x1 || node.y > y2 || nodeBottom < y1);
     }
 
     cycleParamConnectionMode(connection) {
@@ -1044,6 +1056,12 @@ export class App {
             if (!wantsAdd && !wantsToggle) {
                 this.clearSelection();
             }
+            
+            // Start lasso selection if clicking on empty space (not on a node)
+            if (!this.draggingCable && !this.draggingParam && !this.draggingSelection) {
+                this.lassoStart = { x, y };
+                this.lassoEnd = { x, y };
+            }
         });
 
         this.canvas.addEventListener('mousemove', (e) => {
@@ -1055,6 +1073,12 @@ export class App {
                 this.hoveredCable = this.findConnectionAt(x, y, 15);
             } else {
                 this.hoveredCable = null;
+            }
+            
+            // Update lasso selection rectangle
+            if (this.lassoStart && !this.draggingSelection && !this.draggingCable && !this.draggingParam) {
+                this.lassoEnd = { x, y };
+                return;
             }
 
             if (this.draggingSelection && this.draggingAnchor) {
@@ -1101,6 +1125,32 @@ export class App {
         });
 
         this.canvas.addEventListener('mouseup', (e) => {
+            // Complete lasso selection
+            if (this.lassoStart && this.lassoEnd) {
+                const x1 = Math.min(this.lassoStart.x, this.lassoEnd.x);
+                const y1 = Math.min(this.lassoStart.y, this.lassoEnd.y);
+                const x2 = Math.max(this.lassoStart.x, this.lassoEnd.x);
+                const y2 = Math.max(this.lassoStart.y, this.lassoEnd.y);
+                
+                // Only select if the lasso rectangle has meaningful size (not just a click)
+                if (Math.abs(x2 - x1) > 5 || Math.abs(y2 - y1) > 5) {
+                    const wantsAdd = e.shiftKey;
+                    if (!wantsAdd) {
+                        this.clearSelection();
+                    }
+                    
+                    // Select all nodes that intersect with the lasso rectangle
+                    this.nodes.forEach(n => {
+                        if (this.nodeIntersectsRect(n, x1, y1, x2, y2)) {
+                            this.addNodeToSelection(n);
+                        }
+                    });
+                }
+                
+                this.lassoStart = null;
+                this.lassoEnd = null;
+            }
+            
             if (this.draggingCable && this.hoveredPort) {
                 this.connect(
                     this.draggingCable.fromNode,
@@ -1116,6 +1166,8 @@ export class App {
             this.draggingSelection = null;
             this.draggingAnchor = null;
             this.hoveredCable = null;
+            this.lassoStart = null;
+            this.lassoEnd = null;
         });
 
         window.addEventListener('mousemove', (e) => {
@@ -1553,6 +1605,24 @@ export class App {
         }
 
         this.nodes.forEach(n => this.drawNode(n));
+        
+        // Draw lasso selection rectangle
+        if (this.lassoStart && this.lassoEnd) {
+            const x1 = Math.min(this.lassoStart.x, this.lassoEnd.x) + this.viewOffset.x;
+            const y1 = Math.min(this.lassoStart.y, this.lassoEnd.y) + this.viewOffset.y;
+            const x2 = Math.max(this.lassoStart.x, this.lassoEnd.x) + this.viewOffset.x;
+            const y2 = Math.max(this.lassoStart.y, this.lassoEnd.y) + this.viewOffset.y;
+            
+            ctx.strokeStyle = '#4dd4ff';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+            ctx.setLineDash([]);
+            
+            ctx.fillStyle = 'rgba(77, 212, 255, 0.1)';
+            ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+        }
+        
         requestAnimationFrame(() => this.loop());
     }
 }

@@ -1,15 +1,21 @@
 # To do
-- Lasso selection of nodes
+- ~~Lasso selection of nodes~~
 - Group / Hide nodes?
 - Proper Synth node support - amp envelope etc - hold key to keep note playing
-- Envelope follower node
+- ~~Envelope follower node~~i
 - More example patches
 - Group tools by type, remove redundant tools
 - Give values names (any node?)
-- better selection of cables
+- ~~better selection of cables~~
 - Make nodes mono by default, add stereo inputs/outputs where needed (audio out etc)
 - Panner - use circular qwpanning law
 - type precise values
 - Record button / render output
 - Fix custom load button
 - Allow midi in to control parameters / synth nodes
+- Regroup parameters seperately from audio inputs
+- Adjustable monitoring scope speed / range
+- Group nodes by type in toolbar
+- FFT viewer / scope, make stereo output waveform stereo
+- Reimplement diffuser node with allpass delays
+- Parameter without any control (no slider etc?)
