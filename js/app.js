@@ -127,6 +127,7 @@ export class App {
         this.draggingCable = null;
         this.draggingParam = null;
         this.hoveredPort = null;
+        this.hoveredCable = null;
         this.showDelaySamples = false;
         this.viewOffset = { x: 0, y: 0 };
         this.isPanning = false;
@@ -769,7 +770,10 @@ export class App {
         orderedNodes.forEach(({ node }) => this.nodes.push(node));
     }
 
-    findConnectionAt(x, y, tolerance = 12) {
+    findConnectionAt(x, y, tolerance = 15) {
+        let closestConnection = null;
+        let closestDistance = tolerance;
+
         for (let i = this.connections.length - 1; i >= 0; i--) {
             const c = this.connections[i];
             const p1 = c.fromNode.getPortPos(false, c.fromPort);
@@ -780,16 +784,26 @@ export class App {
             const cp1x = p1.x + Math.abs(p2.x - p1.x) * 0.5;
             const cp2x = p2.x - Math.abs(p2.x - p1.x) * 0.5;
 
-            for (let t = 0; t <= 1; t += 0.05) {
+            // Find minimum distance to this cable
+            let minDistToCable = Infinity;
+            for (let t = 0; t <= 1; t += 0.02) {
                 const it = 1 - t;
                 const bx = (it * it * it) * p1.x + 3 * (it * it) * t * cp1x + 3 * it * (t * t) * cp2x + (t * t * t) * p2.x;
                 const by = (it * it * it) * p1.y + 3 * (it * it) * t * p1.y + 3 * it * (t * t) * p2.y + (t * t * t) * p2.y;
-                if (Math.hypot(x - bx, y - by) <= tolerance) {
-                    return c;
+                const dist = Math.hypot(x - bx, y - by);
+                if (dist < minDistToCable) {
+                    minDistToCable = dist;
                 }
             }
+
+            // Update closest if this cable is closer
+            if (minDistToCable < closestDistance) {
+                closestDistance = minDistToCable;
+                closestConnection = c;
+            }
         }
-        return null;
+
+        return closestConnection;
     }
 
     cycleParamConnectionMode(connection) {
@@ -1036,6 +1050,13 @@ export class App {
             if (this.isPanning) return;
             const { x, y } = getMousePos(e);
 
+            // Track hovered cable for visual feedback
+            if (!this.draggingCable && !this.draggingParam && !this.draggingSelection) {
+                this.hoveredCable = this.findConnectionAt(x, y, 15);
+            } else {
+                this.hoveredCable = null;
+            }
+
             if (this.draggingSelection && this.draggingAnchor) {
                 const rawX = x - this.draggingAnchor.offsetX;
                 const rawY = y - this.draggingAnchor.offsetY;
@@ -1094,6 +1115,7 @@ export class App {
             this.draggingParam = null;
             this.draggingSelection = null;
             this.draggingAnchor = null;
+            this.hoveredCable = null;
         });
 
         window.addEventListener('mousemove', (e) => {
@@ -1149,17 +1171,18 @@ export class App {
                 }
             }
 
-            const connection = this.findConnectionAt(x, y, 10);
+            const connection = this.findConnectionAt(x, y, 15);
             if (connection) {
                 const idx = this.connections.indexOf(connection);
                 this.disconnect(connection);
                 if (idx >= 0) this.connections.splice(idx, 1);
+                this.hoveredCable = null;
             }
         });
 
         this.canvas.addEventListener('contextmenu', (e) => {
             const { x, y } = getMousePos(e);
-            const connection = this.findConnectionAt(x, y, 10);
+            const connection = this.findConnectionAt(x, y, 15);
             if (connection && connection.kind === 'param') {
                 e.preventDefault();
                 this.cycleParamConnectionMode(connection);
@@ -1445,22 +1468,42 @@ export class App {
         const sy1 = y1 + this.viewOffset.y;
         const sx2 = x2 + this.viewOffset.x;
         const sy2 = y2 + this.viewOffset.y;
+        
+        const isHovered = !active && connection && this.hoveredCable === connection;
+        
         ctx.beginPath();
         const cp1x = sx1 + Math.abs(sx2 - sx1) * 0.5;
         const cp2x = sx2 - Math.abs(sx2 - sx1) * 0.5;
         ctx.moveTo(sx1, sy1);
         ctx.bezierCurveTo(cp1x, sy1, cp2x, sy2, sx2, sy2);
+        
         if (active) {
             ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 3;
         } else if (connection && connection.kind === 'param') {
             const mode = connection.mode || 'multiply';
-            if (mode === 'add') ctx.strokeStyle = '#7cb5ff';
-            else if (mode === 'override') ctx.strokeStyle = '#ff8a65';
-            else ctx.strokeStyle = '#ffd54f';
+            if (isHovered) {
+                // Slightly brighter colors when hovered
+                if (mode === 'add') ctx.strokeStyle = '#92c7ff';
+                else if (mode === 'override') ctx.strokeStyle = '#ff9f7f';
+                else ctx.strokeStyle = '#ffe066';
+                ctx.lineWidth = 4;
+            } else {
+                if (mode === 'add') ctx.strokeStyle = '#7cb5ff';
+                else if (mode === 'override') ctx.strokeStyle = '#ff8a65';
+                else ctx.strokeStyle = '#ffd54f';
+                ctx.lineWidth = 3;
+            }
         } else {
-            ctx.strokeStyle = '#888';
+            // Audio cables
+            if (isHovered) {
+                ctx.strokeStyle = '#aaa';
+                ctx.lineWidth = 4;
+            } else {
+                ctx.strokeStyle = '#888';
+                ctx.lineWidth = 3;
+            }
         }
-        ctx.lineWidth = 3;
         ctx.stroke();
     }
 
