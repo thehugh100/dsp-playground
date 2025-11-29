@@ -2,6 +2,9 @@
 
 A browser-based visual environment for designing and experimenting with digital signal processing algorithms in real-time. Build complex audio effects, reverbs, and synthesizers using an intuitive node graph interface powered by the Web Audio API.
 
+[▶ Try DSP Playground in your browser](https://thehugh100.github.io/dsp-playground)
+
+
 ## Features
 
 - **Visual Node Graph Editor**: Connect audio processing nodes with an intuitive drag-and-drop interface
