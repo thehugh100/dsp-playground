@@ -1,0 +1,14 @@
+# To do
+- Lasso selection of nodes
+- Group / Hide nodes?
+- Proper Synth node support - amp envelope etc - hold key to keep note playing
+- Envelope follower node
+- More example patches
+- Group tools by type, remove redundant tools
+- Give values names (any node?)
+- better selection of cables
+- Make nodes mono by default, add stereo inputs/outputs where needed (audio out etc)
+- Panner - use circular qwpanning law
+- type precise values
+- Record button?
+- Fix custom load button
