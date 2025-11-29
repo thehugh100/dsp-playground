@@ -115,6 +115,8 @@ export class App {
 
         this.canvas = document.getElementById('nodeCanvas');
         this.ctx = this.canvas.getContext('2d');
+        this.displayWidth = window.innerWidth;
+        this.displayHeight = window.innerHeight;
         this.nodes = [];
         this.connections = [];
         this.audioCtx = null;
@@ -290,8 +292,10 @@ export class App {
         this.dynamicNodes.clear();
         this.nodes = [];
         this.activeSourceForLoad = null;
-        this.addNode('output', this.canvas.width - 200, this.canvas.height / 2 - 50);
-        this.addNode('audio-source', 50, this.canvas.height / 2 - 100);
+        const width = this.displayWidth || window.innerWidth;
+        const height = this.displayHeight || window.innerHeight;
+        this.addNode('output', width - 200, height / 2 - 50);
+        this.addNode('audio-source', 50, height / 2 - 100);
         this.lastAudioSourceNode = this.nodes[1];
     }
 
@@ -557,11 +561,13 @@ export class App {
 
     addNode(type, x, y) {
         console.log(`Adding node of type: ${type}`);
-        if (x === undefined) x = this.canvas.width / 2 - 70 - this.viewOffset.x;
-        if (y === undefined) y = this.canvas.height / 2 - 50 - this.viewOffset.y;
+        const width = this.displayWidth || window.innerWidth;
+        const height = this.displayHeight || window.innerHeight;
+        if (x === undefined) x = width / 2 - 70 - this.viewOffset.x;
+        if (y === undefined) y = height / 2 - 50 - this.viewOffset.y;
 
         // Auto-start audio on first node addition (toolbar clicks)
-        if (!this.audioStarted && x === this.canvas.width / 2 - 70 - this.viewOffset.x) {
+        if (!this.audioStarted && x === width / 2 - 70 - this.viewOffset.x) {
             this.audioStarted = true;
             this.startAudio();
         }
@@ -725,8 +731,24 @@ export class App {
     }
 
     resize() {
-        this.canvas.width = window.innerWidth;
-        this.canvas.height = window.innerHeight;
+        const dpr = window.devicePixelRatio || 1;
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        
+        // Set display size (css pixels)
+        this.canvas.style.width = width + 'px';
+        this.canvas.style.height = height + 'px';
+        
+        // Set actual size in memory (scaled to account for DPI)
+        this.canvas.width = width * dpr;
+        this.canvas.height = height * dpr;
+        
+        // Scale all drawing operations by the DPR
+        this.ctx.scale(dpr, dpr);
+        
+        // Store display dimensions for mouse coordinate calculations
+        this.displayWidth = width;
+        this.displayHeight = height;
     }
 
     clearSelection() {
@@ -1570,7 +1592,9 @@ export class App {
         this.lastTickTime = now;
 
         const ctx = this.ctx;
-        ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        const width = this.displayWidth || window.innerWidth;
+        const height = this.displayHeight || window.innerHeight;
+        ctx.clearRect(0, 0, width, height);
 
         const gs = 20;
         ctx.strokeStyle = '#222';
@@ -1578,15 +1602,15 @@ export class App {
         ctx.beginPath();
 
         const startX = ((Math.floor((-this.viewOffset.x) / gs) - 1) * gs) + this.viewOffset.x;
-        for (let x = startX; x < this.canvas.width + gs; x += gs) {
+        for (let x = startX; x < width + gs; x += gs) {
             ctx.moveTo(x, 0);
-            ctx.lineTo(x, this.canvas.height);
+            ctx.lineTo(x, height);
         }
 
         const startY = ((Math.floor((-this.viewOffset.y) / gs) - 1) * gs) + this.viewOffset.y;
-        for (let y = startY; y < this.canvas.height + gs; y += gs) {
+        for (let y = startY; y < height + gs; y += gs) {
             ctx.moveTo(0, y);
-            ctx.lineTo(this.canvas.width, y);
+            ctx.lineTo(width, y);
         }
 
         ctx.stroke();

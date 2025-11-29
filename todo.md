@@ -15,7 +15,7 @@
 - Allow midi in to control parameters / synth nodes
 - Regroup parameters seperately from audio inputs
 - Adjustable monitoring scope speed / range
-- Group nodes by type in toolbar
 - FFT viewer / scope, make stereo output waveform stereo
 - Reimplement diffuser node with allpass delays
 - Parameter without any control (no slider etc?)
+- Inverter could be merged into gain?
