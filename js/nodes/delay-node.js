@@ -8,7 +8,7 @@ export class DelayNodeUI extends DSPNode {
         this.inputs = [{ name: 'In', id: 0, node: this.node }];
         this.outputs = [{ name: 'Out', id: 0, node: this.node }];
         this.params = [{
-            label: 'Time (s)', type: 'range', value: 0.5, min: 0.01, max: 2, scale: 'log',
+            label: 'Time (s)', type: 'range', value: 0.5, min: 0.001, max: 5, scale: 'log',
             onChange: (v) => this.node.delayTime.setTargetAtTime(v, ctx.currentTime, 0.02)
         }];
         this.initializeParams();

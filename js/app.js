@@ -25,6 +25,7 @@ import { SampleHoldNodeUI } from './nodes/samplehold-node.js';
 import { LFONodeUI } from './nodes/lfo-node.js';
 import { ChaosNodeUI } from './nodes/chaos-node.js';
 import { EnvelopeFollowerNode } from './nodes/envelope-follower-node.js';
+import { SynthNodeUI } from './nodes/synth-node.js';
 
 export class App {
     debugParams() {
@@ -169,13 +170,27 @@ export class App {
         window.addEventListener('keydown', (e) => {
             if (e.code === 'Space') {
                 e.preventDefault();
-                if (this.lastAudioSourceNode) this.lastAudioSourceNode.trigger(this.lastAudioSourceNode.lastType);
+                if (this.lastAudioSourceNode && this.lastAudioSourceNode.type !== 'synth') this.lastAudioSourceNode.trigger(this.lastAudioSourceNode.lastType);
                 return;
             }
 
             const diatonic = this.scaleKeyMap.hasOwnProperty(e.code) ? this.scaleKeyMap[e.code] : undefined;
             const sharp = this.sharpKeyMap.hasOwnProperty(e.code) ? this.sharpKeyMap[e.code] : undefined;
             if (diatonic !== undefined || sharp !== undefined) {
+                if(this.lastAudioSourceNode.type === 'synth') {
+                    // Prevent retrigger if key is already held
+                    if (this.activeKeys.has(e.code)) return;
+                    this.activeKeys.add(e.code);
+                    
+                    let base = 60; // MIDI note for middle C
+                    const semitone = diatonic !== undefined ? diatonic : sharp;
+                    const noteNumber = base + semitone + this.pitchOctaveOffset * 12;
+                    this.lastAudioSourceNode.midiNoteOn(noteNumber);
+
+                    e.preventDefault();
+                    return;
+                }
+
                 if (this.activeKeys.has(e.code)) return;
                 this.activeKeys.add(e.code);
                 const source = this.lastAudioSourceNode;
@@ -220,6 +235,16 @@ export class App {
             if (this.scaleKeyMap.hasOwnProperty(e.code) || this.sharpKeyMap.hasOwnProperty(e.code)) {
                 this.activeKeys.delete(e.code);
             }
+
+            if(this.lastAudioSourceNode.type === 'synth') {
+                let base = 60; // MIDI note for middle C
+                const semitone = this.scaleKeyMap.hasOwnProperty(e.code) ? this.scaleKeyMap[e.code] : this.sharpKeyMap[e.code];
+                const noteNumber = base + semitone + this.pitchOctaveOffset * 12;
+                this.lastAudioSourceNode.midiNoteOff(noteNumber);
+
+                e.preventDefault();
+                return;
+            }
         });
 
         this.setupInput();
@@ -252,7 +277,13 @@ export class App {
             }
             return;
         }
-        this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        this.audioCtx = new (window.AudioContext || window.webkitAudioContext)(
+            { latencyHint: 0.01 }
+        );
+
+        console.log('Base Latency: ' + this.audioCtx.baseLatency);
+        console.log('Output Latency: ' + this.audioCtx.outputLatency);
+
         AudioUtils.init(this.audioCtx);
         if (SampleHoldNodeUI.shouldUseWorklet(this.audioCtx)) {
             try {
@@ -579,7 +610,7 @@ export class App {
         const n = this.createNodeInstance(type, x, y);
         if (this.audioCtx) n.initAudio(this.audioCtx);
         this.nodes.push(n);
-        if (type === 'audio-source' || type === 'sampler') this.lastAudioSourceNode = n;
+        if (type === 'audio-source' || type === 'sampler' || type === 'synth') this.lastAudioSourceNode = n;
         console.log(`finished adding node ID: ${n.id}`);
         return n; // Return for scripting
     }
@@ -616,6 +647,7 @@ export class App {
             case 'chaos': return new ChaosNodeUI(x, y, this);
             case 'envelope-follower': return new EnvelopeFollowerNode(x, y, this);
             case 'value': return new ValueNodeUI(x, y, this);
+            case 'synth': return new SynthNodeUI(x, y, this);
             default: return new GainNodeUI(x, y, this);
         }
     }
@@ -1277,7 +1309,7 @@ export class App {
 
         // Body
         ctx.fillStyle = '#2d2d2d';
-        const isAudioSourceNode = n.type === 'audio-source' || n.type === 'sampler';
+        const isAudioSourceNode = n.type === 'audio-source' || n.type === 'sampler' || n.type === 'synth';
         const isActiveSource = n === this.lastAudioSourceNode && isAudioSourceNode;
         let strokeStyle = '#555';
         let strokeWidth = 1;
@@ -1325,7 +1357,7 @@ export class App {
             ctx.beginPath(); ctx.arc(sx, sy, 5, 0, Math.PI * 2); ctx.fill();
         });
 
-        if (isAudioSourceNode) {
+        if (isAudioSourceNode && (n.type === 'audio-source' || n.type === 'sampler')) {
             const buttons = ['kick', 'snare', 'hh', 'sine', 'saw', 'square', 'triangle', 'noise', 'mic', 'custom'];
             let bx = screenX + 10;
             let by = screenY + n.headerHeight + 10;

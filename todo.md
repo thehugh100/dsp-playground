@@ -19,3 +19,7 @@
 - Reimplement diffuser node with allpass delays
 - Parameter without any control (no slider etc?)
 - Inverter could be merged into gain?
+- Component node to combine multiple nodes into one (edit components in separate view, the input and outputs of the component node flow into the internal nodes)
+- Reimplement householder diffuser node as audio worklet
+- copy/paste to clipboard (as json)
+- LFO & Chaos phase slider

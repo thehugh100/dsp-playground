@@ -56,6 +56,7 @@
             <button onclick="app.addNode('lfo')">LFO</button>
             <button onclick="app.addNode('chaos')">Chaos</button>
             <button onclick="app.addNode('envelope-follower')">Envelope Follower</button>
+            <button onclick="app.addNode('synth')">Synth</button>
         </div>
         <div class="action-group">
             <select id="preset-select" onchange="app.loadPreset(this.value); this.value='';">
@@ -63,6 +64,9 @@
                 <option value="shroeder-topology">Schroeder Topology</option>
                 <option value="quadraverb-topology">Quadraverb Topology</option>
                 <option value="ping-pong-delay">Ping Pong Delay</option>
+                <option value="phaser">Phaser</option>
+                <option value="flanger">Flanger</option>
+                <option value="stereo-chorus">Stereo Chorus</option>
             </select>
             <button onclick="app.saveGraph()">Save</button>
             <button onclick="document.getElementById('json-input').click()">Load</button>
