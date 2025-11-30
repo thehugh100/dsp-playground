@@ -6,15 +6,19 @@ export class LFONodeUI extends DSPNode {
         this.type = 'lfo';
         this.width = 160;
         this.phase = 0;
+        this.steppedPhase = 0;
         this.currentValue = 1;
         this.frequency = 1;
+        this.stepFrequency = 1;
         this.depth = 0.5;
         this.center = 1;
-        this.waveforms = ['sine', 'triangle', 'sawtooth', 'square', 'random'];
+        this.waveforms = ['sine', 'triangle', 'sawtooth', 'square', 'random', 'stepped'];
         this.waveformIndex = 0;
         this.randomMode = false;
+        this.steppedMode = false;
         this.randomTimer = 0;
         this.randomValue = 0;
+        this.steppedValue = 0;
         this.oscillator = null;
         this.amplitude = null;
         this.offsetSource = null;
@@ -71,8 +75,18 @@ export class LFONodeUI extends DSPNode {
                 onChange: (v) => this.setCenter(v, ctx)
             },
             {
-                label: 'Waveform', type: 'range', value: 0, min: 0, max: 4, step: 1, scale: 'linear',
+                label: 'Waveform', type: 'range', value: 0, min: 0, max: 5, step: 1, scale: 'linear',
                 onChange: (v) => this.setWaveform(v, ctx)
+            },
+            {
+                label: 'Step Rate (Hz)', type: 'range', value: 1, min: 0.05, max: 30, scale: 'log',
+                onChange: (v) => {
+                    this.stepFrequency = v;
+                    if (this.steppedMode) {
+                        this.randomTimer = 0;
+                    }
+                },
+                hidden: true
             }
         ];
         this.initializeParams();
@@ -84,6 +98,27 @@ export class LFONodeUI extends DSPNode {
     tick(delta, now) {
         if (!this.context) return;
         const freq = this.frequency;
+        
+        if (this.steppedMode) {
+            // Sample the oscillator's current value at step rate intervals
+            const stepPeriod = 1 / Math.max(0.0001, this.stepFrequency);
+            this.randomTimer += delta;
+            while (this.randomTimer >= stepPeriod) {
+                this.randomTimer -= stepPeriod;
+                // Sample the current oscillator phase
+                const elapsed = this.context.currentTime - this.startTime;
+                const oscillatorPhase = (elapsed * freq) % 1;
+                this.steppedValue = Math.sin(oscillatorPhase * Math.PI * 2);
+            }
+            // Hold the last sampled value
+            const value = this.center + this.depth * this.steppedValue;
+            if (this.offsetSource && this.context) {
+                this.offsetSource.offset.setValueAtTime(value, this.context.currentTime);
+            }
+            this.updateCurrentValue(value);
+            return;
+        }
+        
         if (this.randomMode) {
             const period = 1 / Math.max(0.0001, freq);
             this.randomTimer += delta;
@@ -151,7 +186,14 @@ export class LFONodeUI extends DSPNode {
     setDepth(value, ctx) {
         this.depth = value;
         this.updateDepthGain(ctx || this.context);
-        if (this.randomMode) {
+        if (this.steppedMode) {
+            const context = ctx || this.context;
+            if (this.offsetSource && context) {
+                const target = this.center + this.depth * this.steppedValue;
+                this.offsetSource.offset.setTargetAtTime(target, context.currentTime, 0.02);
+                this.updateCurrentValue(target);
+            }
+        } else if (this.randomMode) {
             const context = ctx || this.context;
             if (this.offsetSource && context) {
                 const target = this.center + this.depth * this.randomValue;
@@ -165,7 +207,14 @@ export class LFONodeUI extends DSPNode {
         this.center = value;
         const context = ctx || this.context;
         if (!this.offsetSource || !context) return;
-        const target = this.randomMode ? value + this.depth * this.randomValue : value;
+        let target;
+        if (this.steppedMode) {
+            target = value + this.depth * this.steppedValue;
+        } else if (this.randomMode) {
+            target = value + this.depth * this.randomValue;
+        } else {
+            target = value;
+        }
         this.offsetSource.offset.setTargetAtTime(target, context.currentTime, 0.02);
         this.updateCurrentValue(target);
     }
@@ -174,11 +223,26 @@ export class LFONodeUI extends DSPNode {
         const context = ctx || this.context;
         const idx = Math.max(0, Math.min(this.waveforms.length - 1, Math.round(value)));
         this.waveformIndex = idx;
+        this.steppedMode = this.waveforms[idx] === 'stepped';
         this.randomMode = this.waveforms[idx] === 'random';
         if (this.params && this.params[3]) {
             this.params[3].effectiveValue = idx;
         }
-        if (this.randomMode) {
+        
+        if (this.steppedMode) {
+            this.randomTimer = 0;
+            this.steppedPhase = 0;
+            this.steppedValue = 0;
+            this.updateDepthGain(context);
+            if (this.offsetSource && context) {
+                this.offsetSource.offset.setTargetAtTime(this.center, context.currentTime, 0.02);
+            }
+            if (this.params && this.params[4]) {
+                this.params[4].hidden = false;
+                this.computeHeight();
+            }
+            this.triggerSteppedSample(context);
+        } else if (this.randomMode) {
             this.randomTimer = 0;
             this.randomValue = 0;
             this.updateDepthGain(context);
@@ -187,6 +251,10 @@ export class LFONodeUI extends DSPNode {
             }
             this.triggerRandomSample(context);
         } else {
+            if (this.params && this.params[4]) {
+                this.params[4].hidden = true;
+                this.computeHeight();
+            }
             if (this.oscillator) {
                 this.oscillator.type = this.waveforms[idx];
             }
@@ -202,8 +270,19 @@ export class LFONodeUI extends DSPNode {
         const context = ctx || this.context;
         if (!this.amplitude || !context) return;
         const now = context.currentTime;
-        const target = this.randomMode ? 0 : this.depth;
+        const target = (this.randomMode || this.steppedMode) ? 0 : this.depth;
         this.amplitude.gain.setTargetAtTime(target, now, 0.02);
+    }
+
+    triggerSteppedSample(ctx) {
+        this.steppedPhase = 0;
+        this.steppedValue = 0;
+        const target = this.center;
+        const context = ctx || this.context;
+        if (this.offsetSource && context) {
+            this.offsetSource.offset.setTargetAtTime(target, context.currentTime, 0.02);
+        }
+        this.updateCurrentValue(target);
     }
 
     triggerRandomSample(ctx) {

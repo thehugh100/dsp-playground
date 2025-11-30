@@ -45,6 +45,11 @@ export class SampleHoldNodeUI extends DSPNode {
 
         this.updateHeldValue(this.heldValue);
         this.prepareWorklet(ctx);
+        
+        // Register as dynamic node for continuous parameter updates
+        if (this.app && typeof this.app.registerDynamicNode === 'function') {
+            this.app.registerDynamicNode(this);
+        }
     }
 
     setupCommonIO(ctx) {
@@ -256,6 +261,11 @@ export class SampleHoldNodeUI extends DSPNode {
 
     onRemoved() {
         this.deferredInit = false;
+        
+        // Unregister as dynamic node
+        if (this.app && typeof this.app.unregisterDynamicNode === 'function') {
+            this.app.unregisterDynamicNode(this);
+        }
 
         if (this.workletNode) {
             try { this.workletNode.port.postMessage({ type: 'reset' }); } catch (e) { }
@@ -292,6 +302,14 @@ export class SampleHoldNodeUI extends DSPNode {
         if (Math.abs(value - this.heldValue) < 1e-6) return;
         this.heldValue = value;
         this.notifySubscribers();
+    }
+
+    tick(delta, time) {
+        // Continuously update subscribers even if value hasn't changed
+        // This ensures parameter updates happen consistently
+        if (this.subscribers.length > 0) {
+            this.notifySubscribers();
+        }
     }
 
     static shouldUseWorklet(ctx) {

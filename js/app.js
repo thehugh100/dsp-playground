@@ -181,7 +181,7 @@ export class App {
                     // Prevent retrigger if key is already held
                     if (this.activeKeys.has(e.code)) return;
                     this.activeKeys.add(e.code);
-                    
+
                     let base = 60; // MIDI note for middle C
                     const semitone = diatonic !== undefined ? diatonic : sharp;
                     const noteNumber = base + semitone + this.pitchOctaveOffset * 12;
@@ -791,6 +791,10 @@ export class App {
     selectSingleNode(node) {
         this.selectedNodes.clear();
         if (node) this.selectedNodes.add(node);
+
+        if(node.type === 'synth' || node.type === 'audio-source' || node.type === 'sampler') {
+            this.lastAudioSourceNode = node;
+        }
     }
 
     addNodeToSelection(node) {
@@ -1481,7 +1485,8 @@ export class App {
             const formatValue = (val) => {
                 if (typeof val !== 'number' || Number.isNaN(val)) return `${val}`;
                 if (p.label === 'Waveform') {
-                    const waveNames = ['Sine', 'Triangle', 'Saw', 'Square', 'Random'];
+                    const waveNames = ['Sine', 'Triangle', 'Saw', 'Square', 'Random', 'Stepped'];
+                    
                     const idx = Math.max(0, Math.min(waveNames.length - 1, Math.round(val)));
                     return waveNames[idx];
                 }
